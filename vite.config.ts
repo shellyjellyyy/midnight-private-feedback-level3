@@ -174,6 +174,27 @@ function midnightZkDeployAssets(): Plugin {
 
 export default defineConfig({
   plugins: [react(), wasm(), midnightZkAssets(), midnightZkDeployAssets()],
+  // The Midnight SDK's browser stack expects the Node globals its bare
+  // references read. @midnight-ntwrk/compact-runtime-ledger8 (and the v9
+  // compact-runtime) call `Buffer.from(...)` as a GLOBAL, which a browser does
+  // not provide; the runtime failure is "Buffer is not defined" the first time
+  // findDeployedContract() decodes contract state.
+  //
+  // These match the official midnightntwrk/midnight-wallet-dapp starter, which
+  // declares the same aliases plus a `src/polyfills.ts` that assigns
+  // globalThis.Buffer. Both halves are required: the alias makes `buffer`/`process`
+  // resolve to their browser builds, and the polyfill populates the global.
+  resolve: {
+    alias: {
+      buffer: "buffer",
+      process: "process/browser",
+    },
+  },
+  // Some Midnight modules reference `global`; point it at the real global object
+  // rather than letting it resolve to nothing. Same as the starter.
+  define: {
+    global: "globalThis",
+  },
   build: {
     // The Midnight onchain runtime ships as WASM with top-level await; the
     // default esnext-free target cannot emit that.
