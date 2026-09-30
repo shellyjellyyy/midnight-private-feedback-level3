@@ -144,7 +144,10 @@ const ADMIN_SECRET_FILE = process.env.MIDNIGHT_ADMIN_SECRET_FILE_PREVIEW ?? ".ad
 const NETWORK_ID = "preview";
 const ARTIFACT_DIR = resolve("managed/feedback-v8");
 const PROOF_SERVER = process.env.MIDNIGHT_PROOF_SERVER_PREVIEW ?? "https://proof-server.preview.midnight.network";
-const FEEDBACK_PRIVATE_STATE_ID = "feedbackPrivateState";
+
+// NOTE: there is deliberately NO FEEDBACK_PRIVATE_STATE_ID here. This script
+// only ever makes an admin call (`registerParticipant`), which takes no private
+// state. See findContract() below for why attaching with that id fails.
 
 const logger = makeRedactingLogger();
 
@@ -305,12 +308,36 @@ async function assertFinalized(providers, txId, what) {
   return { ok, status, txId };
 }
 
+/**
+ * Attaches to the deployed contract for an ADMIN-ONLY call.
+ *
+ * NO `privateStateId` HERE, DELIBERATELY.
+ *   `registerParticipant`'s only witness is `adminSecret`, which this script
+ *   supplies from the `adminRuntimeSecret` closure. It reads nothing from the
+ *   private state, so there is no private state to load or seed.
+ *
+ *   `findDeployedContract` has four documented private-state branches (stable
+ *   midnight-js-contracts, setOrGetInitialPrivateState):
+ *     - id + initialState  -> store it
+ *     - id, no state, entry exists -> use the stored entry
+ *     - id, no state, NO entry -> assertDefined THROWS
+ *     - no id, no state      -> returns undefined, nothing stored
+ *   Passing `privateStateId` without `initialPrivateState` lands in the third
+ *   branch, which failed live with
+ *     "No private state found at private state ID 'feedbackPrivateState'"
+ *   because this script deliberately uses its own store
+ *   ("feedback-preview-provisioner"), which starts empty.
+ *
+ *   Omitting the key takes the fourth branch and is what
+ *   scripts/deploy-preview.mjs's own comment prescribes for admin handles.
+ *   No placeholder private state is written: that would persist meaningless
+ *   admin state into a long-lived store for no benefit.
+ */
 async function findContract(providers, compiled, address) {
   const { findDeployedContract } = await import(pathToFileURL(STABLE_CONTRACTS_ESM).href);
   return findDeployedContract(providers, {
     compiledContract: compiled,
     contractAddress: address,
-    privateStateId: FEEDBACK_PRIVATE_STATE_ID,
   });
 }
 

@@ -179,6 +179,42 @@ describe("participant commitment derivation", () => {
   });
 });
 
+describe("the organizer admin attach carries no private state", () => {
+  /**
+   * A regression guard for a live failure, not a unit-level detail.
+   *
+   * `registerParticipant`'s only witness is `adminSecret`, supplied by the
+   * script's `adminRuntimeSecret` closure — it reads nothing from private state.
+   * Passing `privateStateId` to `findDeployedContract` WITHOUT an
+   * `initialPrivateState` takes the SDK's third branch, which asserts and
+   * throws:
+   *
+   *   "No private state found at private state ID 'feedbackPrivateState'"
+   *
+   * That only manifests against a real store at run time, so nothing else in
+   * the suite would catch its reintroduction. Asserted on the source because
+   * the SDK's four-way private-state branch is not exported and cannot be
+   * driven directly.
+   */
+  it("provision-participant-preview.mjs omits privateStateId from findDeployedContract", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const source = readFileSync(
+      resolve(__dirname, "../scripts/provision-participant-preview.mjs"),
+      "utf8",
+    );
+
+    // The attach call itself must not pass either private-state option. The
+    // word still appears in the explanatory comment block above the function.
+    const attach = source.match(
+      /findDeployedContract\(providers,\s*\{([\s\S]*?)\}\)/,
+    )?.[1];
+    expect(attach).toBeDefined();
+    expect(attach).not.toMatch(/privateStateId\s*:/);
+    expect(attach).not.toMatch(/initialPrivateState\s*:/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 4. END-TO-END AGAINST THE COMPILED CONTRACT (the real proof of parity).
 // ---------------------------------------------------------------------------
