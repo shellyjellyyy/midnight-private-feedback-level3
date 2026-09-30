@@ -129,6 +129,22 @@ export function useMidnight() {
 
         const address = deployedContractAddress();
 
+        // Scope the private-state provider to the deployed contract BEFORE any
+        // get/set/remove. `PrivateStateProvider.setContractAddress` is
+        // documented as mandatory before those operations, and the provider
+        // throws "Contract address not set. Call setContractAddress() before
+        // accessing private state." without it.
+        //
+        // `findDeployedContract` scopes the provider itself, but only DURING the
+        // join — and this pre-join `set()` happens before that, which is why it
+        // must be scoped here. This mirrors the working Node flow in
+        // scripts/diag-submitfeedback.mjs, which calls setContractAddress
+        // immediately after constructing the provider.
+        //
+        // The provider bundle is cached across submits, so this is safe to
+        // re-apply: it is the same address, and scoping is idempotent.
+        providerBundle.providers.privateStateProvider.setContractAddress(address);
+
         // Store the private state BEFORE joining: the join reads and re-stores
         // the state under the well-known id, and the retained-era join refuses
         // an id the provider holds nothing under.
