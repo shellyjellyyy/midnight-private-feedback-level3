@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectOneAmWallet, findOneAmWallet, shortenAddress } from "../src/lib/wallet";
+import { EXPECTED_NETWORK_ID } from "../src/lib/midnight/era";
 
 function installWallet(id: string, overrides: Partial<Record<string, unknown>> = {}) {
   const base = {
@@ -115,6 +116,96 @@ describe("connectOneAmWallet", () => {
     if (result.status === "error") {
       expect(result.reason).toBe("connection-failed");
     }
+  });
+
+  // The structured APIError fields are the authoritative signal: the connector
+  // is a separate realm, so `code` is present even when `message` is opaque.
+  it("classifies by the connector error code, not the message text", async () => {
+    const cases: Array<[string, string]> = [
+      ["PermissionRejected", "permission-rejected"],
+      ["Rejected", "rejected"],
+      ["InvalidRequest", "rejected"],
+      ["Disconnected", "disconnected"],
+      ["InternalError", "connection-failed"],
+    ];
+
+    for (const [code, expected] of cases) {
+      installWallet("oneam-key", {
+        connect: vi.fn().mockRejectedValue({
+          type: "DAppConnectorAPIError",
+          code,
+          reason: "Request failed",
+          message: "Request failed",
+        }),
+      });
+
+      const result = await connectOneAmWallet();
+      expect(result.status, `code ${code}`).toBe("error");
+      if (result.status === "error") {
+        expect(result.reason, `code ${code}`).toBe(expected);
+        // The wallet's own reason is surfaced instead of being discarded.
+        expect(result.message, `code ${code}`).toContain("Request failed");
+      }
+    }
+  });
+
+  it("does not mistake InternalError for a user rejection", async () => {
+    // The real observed failure from the deployed site: an opaque message that
+    // matches none of the rejection keywords, which the previous
+    // substring-only check reported as a bare "please try again".
+    installWallet("oneam-key", {
+      connect: vi.fn().mockRejectedValue({
+        type: "DAppConnectorAPIError",
+        code: "InternalError",
+        reason: "Request failed",
+        message: "Request failed",
+        name: "Error",
+      }),
+    });
+
+    const result = await connectOneAmWallet();
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.reason).toBe("connection-failed");
+      expect(result.message).toContain("Request failed");
+    }
+  });
+
+  it("preserves the original error on the console for diagnosis", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = {
+      type: "DAppConnectorAPIError",
+      code: "InternalError",
+      reason: "Request failed",
+      message: "Request failed",
+    };
+    installWallet("oneam-key", { connect: vi.fn().mockRejectedValue(failure) });
+
+    await connectOneAmWallet();
+
+    expect(spy).toHaveBeenCalledWith(
+      "[wallet] 1AM connect failed",
+      expect.objectContaining({ stage: "connect", code: "InternalError", reason: "Request failed", error: failure }),
+    );
+  });
+
+  it("reports the failing stage when a later connector call fails", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    installWallet("oneam-key", {
+      connect: vi.fn().mockResolvedValue({
+        // Echo the network the app actually asks for, so the check passes and
+        // the address call is genuinely reached.
+        getConfiguration: vi.fn().mockResolvedValue({ networkId: EXPECTED_NETWORK_ID }),
+        getUnshieldedAddress: vi.fn().mockRejectedValue(new Error("boom")),
+      }),
+    });
+
+    const result = await connectOneAmWallet();
+    expect(result.status).toBe("error");
+    expect(spy).toHaveBeenCalledWith(
+      "[wallet] 1AM connect failed",
+      expect.objectContaining({ stage: "getUnshieldedAddress" }),
+    );
   });
 });
 
