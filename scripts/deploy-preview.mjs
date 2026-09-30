@@ -51,6 +51,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { firstValueFrom } from "rxjs";
 import { rememberSecret, scrub, makeRedactingLogger } from "./lib-redacting-logger.mjs";
+import { evaluateVerdict, verdictExitCode } from "./lib-deploy-verdict.mjs";
 
 // ---------------------------------------------------------------------------
 // 0. Configuration, fail-loudly.
@@ -1209,20 +1210,9 @@ try {
   // run cannot be "green" just because it did not throw: a positive step that
   // did not finalize, or a negative test that was NOT rejected, must fail here.
   //
-  const problems = [];
-  for (const t of report.transactions) {
-    if (t.ok === false) problems.push(`transaction did not finalize: ${t.op} (${t.status ?? "no status"})`);
-  }
-  for (const n of report.negativeTests) {
-    if (!n.pass) problems.push(`negative test was NOT rejected: ${n.name} -> ${n.actual}`);
-  }
-  const submitTx = report.transactions.find((t) => t.op === "submitFeedback");
-  if (!submitTx) problems.push("no submitFeedback transaction was recorded");
-  else if (String(tallyFinal.responseCount ?? "0") === "0") problems.push("responseCount is still 0 after submission");
-  if (tallyFinal.usedNullifiers === undefined || String(tallyFinal.usedNullifiers) === "0") {
-    problems.push("no nullifier was recorded - replay protection did not engage");
-  }
-  if (tallyFinal.surveyOpen !== true) problems.push("survey did not return to the open state after the close/reopen round-trip");
+  // The decision itself lives in scripts/lib-deploy-verdict.mjs so it can be
+  // failure-tested offline (tests/deploy-verdict.test.ts) without deploying.
+  const problems = evaluateVerdict(report, tallyFinal);
 
   console.log("\n================ VERDICT ================");
   if (problems.length === 0) {
@@ -1233,7 +1223,7 @@ try {
   }
 
   await env.shutdown().catch((e) => console.log("shutdown:", scrub(String(e)).slice(0, 200)));
-  process.exit(problems.length === 0 ? 0 : 7);
+  process.exit(verdictExitCode(problems));
 } catch (error) {
   // Include the full cause chain: SDK errors (e.g. SubmissionError) carry the
   // real reason in `.cause`, which is NOT part of stack/message — without
