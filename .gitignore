@@ -13,8 +13,30 @@ dist/
 dist-ssr/
 
 # compiled contract artifacts (regenerate with `npm run compile`)
-managed/*
-!managed/.gitkeep
+#
+# NARROW EXCEPTION — each era's `contract/` module IS tracked, because the
+# frontend imports it at BUILD time:
+#   src/lib/midnight/contract.ts     -> managed/feedback/contract/index.js
+#   src/lib/midnight/contract-v8.ts  -> managed/feedback-v8/contract/index.js
+#   src/lib/midnight/types.ts, witnesses.ts (types only)
+# Every host that runs `npm run build` therefore needs those files present in a
+# fresh checkout. Vercel has no Compact toolchain and must not be asked to
+# author contracts, so the generated module is committed rather than
+# regenerated on the deploy host. It is public contract code plus its .d.ts —
+# about 230 KB for both eras — with no seed, key material or private state;
+# the witness SECRETS are supplied at runtime in the browser and never appear
+# in it.
+#
+# Everything else the compiler emits stays ignored. The per-circuit proving
+# material is large (the three .prover files alone are ~10.9 MB per era), is
+# never imported by the build, is fetched by the browser at runtime, and CI
+# recompiles it from source on every run.
+managed/feedback/compiler/
+managed/feedback/keys/
+managed/feedback/zkir/
+managed/feedback-v8/compiler/
+managed/feedback-v8/keys/
+managed/feedback-v8/zkir/
 
 # environment
 .env
