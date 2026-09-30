@@ -25,7 +25,7 @@ import { EXPECTED_NETWORK_ID } from "./midnight/era.js";
 export type WalletConnectionState =
   | { status: "disconnected" }
   | { status: "connecting" }
-  | { status: "connected"; address: string; networkId: string }
+  | { status: "connected"; address: string; networkId: string; api: ConnectedAPI }
   | { status: "error"; reason: WalletErrorReason; message: string };
 
 export type WalletErrorReason =
@@ -60,6 +60,12 @@ export function findOneAmWallet(): InitialAPI | null {
  * Connects to 1AM Wallet on the app's configured Midnight network —
  * EXPECTED_NETWORK_ID from ./midnight/era.js (Preprod for the v9 era,
  * Preview for the retained ledger-v8 era).
+ *
+ * On success the live `ConnectedAPI` is carried on the returned state as
+ * `api`. It is the only handle the caller can use to read configuration, build
+ * providers and sign/submit, and the connector does not offer a way to
+ * retrieve it again once `connect()` has resolved — so it must be handed back
+ * rather than dropped here.
  *
  * Distinguishes the specific failure modes the UI needs to react to:
  * wallet not installed, the user rejecting the connection prompt, the
@@ -106,7 +112,7 @@ export async function connectOneAmWallet(): Promise<WalletConnectionState> {
     // v4 connector: getUnshieldedAddress resolves an OBJECT, not a string.
     try {
       const { unshieldedAddress } = await connected.getUnshieldedAddress();
-      return { status: "connected", address: unshieldedAddress, networkId: config.networkId };
+      return { status: "connected", address: unshieldedAddress, networkId: config.networkId, api: connected };
     } catch (error) {
       return classifyConnectError(error, "getUnshieldedAddress");
     }

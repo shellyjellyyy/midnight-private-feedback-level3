@@ -56,9 +56,13 @@ export function useMidnight() {
     setWallet({ status: "connecting" });
     const result = await connectOneAmWallet();
     setWallet(result);
-    if (result.status !== "connected") {
-      setConnectedApi(null);
-    }
+    // Retain the live ConnectedAPI on success and clear it on every other
+    // outcome. The submission flow needs this handle: `wallet` alone carries
+    // only the address and network, and the connector cannot hand the API back
+    // after connect() has resolved. Without this the form's submit guard sees a
+    // null `connectedApi` and refuses with "Connect 1AM Wallet before
+    // submitting." even though the wallet card shows a live connection.
+    setConnectedApi(result.status === "connected" ? result.api : null);
   }, []);
 
   const disconnect = useCallback(() => {

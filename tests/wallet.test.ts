@@ -120,8 +120,31 @@ describe("connectOneAmWallet", () => {
 
   // The structured APIError fields are the authoritative signal: the connector
   // is a separate realm, so `code` is present even when `message` is opaque.
-  it("classifies by the connector error code, not the message text", async () => {
-    const cases: Array<[string, string]> = [
+  it("hands the live ConnectedAPI back on success so submission can use it", async () => {
+    const api = {
+      getConfiguration: vi.fn().mockResolvedValue({ networkId: EXPECTED_NETWORK_ID }),
+      getUnshieldedAddress: vi.fn().mockResolvedValue({ unshieldedAddress: "mn_addr1live" }),
+    };
+    installWallet("oneam-key", { connect: vi.fn().mockResolvedValue(api) });
+
+    const result = await connectOneAmWallet();
+    expect(result.status).toBe("connected");
+    if (result.status === "connected") {
+      // The submission flow builds its providers from this handle; the
+      // connector offers no way to fetch it again after connect() resolves.
+      expect(result.api).toBe(api);
+    }
+  });
+
+  it("carries no api handle when the connection fails", async () => {
+    installWallet("oneam-key", { connect: vi.fn().mockRejectedValue(new Error("nope")) });
+
+    const result = await connectOneAmWallet();
+    expect(result.status).toBe("error");
+    expect("api" in result).toBe(false);
+  });
+
+  it("classifies by the connector error code, not the message text", async () => {    const cases: Array<[string, string]> = [
       ["PermissionRejected", "permission-rejected"],
       ["Rejected", "rejected"],
       ["InvalidRequest", "rejected"],
