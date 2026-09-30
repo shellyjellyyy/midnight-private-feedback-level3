@@ -26,6 +26,43 @@ export const ZK_HTTP_ROUTE = `/contract/${MANAGED_ARTIFACT_DIR}`;
 /** The Midnight network this era's live contract is deployed on. */
 export const EXPECTED_NETWORK_ID = ERA === "v8-preview" ? "preview" : "preprod";
 
+/**
+ * The canonical Midnight Preview indexer endpoints.
+ *
+ * WHY THESE EXIST (the retained v8 Preview arm only)
+ *   The DApp Connector API says a DApp should build its `publicDataProvider`
+ *   from `getConfiguration()`, because the wallet user may prefer a particular
+ *   indexer. 1AM Wallet on Preview supplies
+ *   `https://api-preview.1am.xyz/api/v4/graphql` for `indexerUri` — which is
+ *   its PROOF SERVER, not an indexer. 1AM's own developer page documents
+ *   `proverServerUri: https://api-preview.1am.xyz` and, for Preview, an indexer
+ *   of `indexer.preview.midnight.network`, so the wallet is populating the
+ *   wrong field.
+ *
+ *   Measured against the deployed contract
+ *   916ae63a…248bc with the installed Midnight.js RAW_CONTRACT_STATE_QUERY:
+ *     api-preview.1am.xyz/api/v4/graphql        -> HTTP 401, no contract state
+ *     indexer.preview.midnight.network/api/v4   -> HTTP 200, contract state present
+ *   and the canonical WebSocket accepts `graphql-transport-ws` `connection_ack`
+ *   while 1AM's refuses the handshake. The wallet's WebSocket URI is wrong the
+ *   same way, which matters because `watchForTxData` subscribes over it.
+ *
+ *   So for the retained Preview era the public indexer endpoint is fixed to the
+ *   canonical one. This is NOT a silent preference override: the wallet value is
+ *   still read, still recorded (redacted) by the diagnostics, and the mismatch
+ *   is still reported, so the wallet defect stays visible.
+ *
+ * SCOPE — deliberately narrow
+ *   These constants are referenced ONLY by `buildPreviewProviders`, the
+ *   retained ledger-v8 arm. The v9/preprod arm keeps using the wallet's
+ *   configuration untouched, because the defect is specific to what 1AM
+ *   returns on Preview. There is no `VITE_`-driven switch here: the endpoint is
+ *   a property of the Preview network, not a build-time choice.
+ */
+export const PREVIEW_INDEXER_HTTP_URI = "https://indexer.preview.midnight.network/api/v4/graphql";
+export const PREVIEW_INDEXER_WS_URI =
+  "wss://indexer.preview.midnight.network/api/v4/graphql/ws";
+
 /** Exact, era-honest label for display in the demo UI. */
 export const ERA_LABEL =
   ERA === "v8-preview"

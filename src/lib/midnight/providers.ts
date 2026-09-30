@@ -49,7 +49,7 @@ import { createWalletProvidersFromConnectedAPI } from "./walletAdapter.js";
 import type { FeedbackPrivateState } from "./witnesses.js";
 import type { FeedbackCircuitId } from "./contract.js";
 import type { FeedbackCircuitIdV8 } from "./contract-v8.js";
-import { ERA, EXPECTED_NETWORK_ID, ZK_HTTP_ROUTE } from "./era.js";
+import { ERA, EXPECTED_NETWORK_ID, PREVIEW_INDEXER_HTTP_URI, PREVIEW_INDEXER_WS_URI, ZK_HTTP_ROUTE } from "./era.js";
 import { reportProviderConfig } from "./diagnostics.js";
 
 /**
@@ -142,17 +142,24 @@ async function buildV9Providers(
   );
 
   const config = await connectedAPI.getConfiguration();
-  reportProviderConfig({
-    phase: "before-construction",
-    ...providerConfigFacts(config, options.networkId, "buildV9Providers"),
-  });
-  const publicDataProvider = indexerPublicDataProvider({
+
+  // The v9/preprod arm follows the wallet's indexer configuration verbatim, as
+  // the DApp Connector API intends. The canonical-Preview pinning below is
+  // confined to the retained v8 arm, which is where the wallet's value is wrong.
+  const indexerEndpoints = {
     queryURL: config.indexerUri,
     subscriptionURL: config.indexerWsUri,
+  };
+  reportProviderConfig({
+    phase: "before-construction",
+    ...providerConfigFacts(config, options.networkId, "buildV9Providers", indexerEndpoints),
+    indexerSource: "wallet",
   });
+  const publicDataProvider = indexerPublicDataProvider(indexerEndpoints);
   reportProviderConfig({
     phase: "after-construction",
-    ...providerConfigFacts(config, options.networkId, "buildV9Providers"),
+    ...providerConfigFacts(config, options.networkId, "buildV9Providers", indexerEndpoints),
+    indexerSource: "wallet",
   });
 
   try {
@@ -243,17 +250,28 @@ async function buildPreviewProviders(
   );
 
   const config = await connectedAPI.getConfiguration();
+
+  // The indexer endpoint for the retained Preview era, and why the wallet's own
+  // value is not used for it. Everything wallet-specific below — the proof
+  // server, balancing, signing, submission — still comes from `config`.
+  const previewIndexer = {
+    queryURL: PREVIEW_INDEXER_HTTP_URI,
+    subscriptionURL: PREVIEW_INDEXER_WS_URI,
+  };
+  const walletOffersUsableIndexer =
+    config.indexerUri === previewIndexer.queryURL &&
+    config.indexerWsUri === previewIndexer.subscriptionURL;
+
   reportProviderConfig({
     phase: "before-construction",
-    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders"),
+    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders", previewIndexer),
+    indexerSource: walletOffersUsableIndexer ? "wallet" : "canonical-preview",
   });
-  const publicDataProvider = indexerPublicDataProvider({
-    queryURL: config.indexerUri,
-    subscriptionURL: config.indexerWsUri,
-  });
+  const publicDataProvider = indexerPublicDataProvider(previewIndexer);
   reportProviderConfig({
     phase: "after-construction",
-    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders"),
+    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders", previewIndexer),
+    indexerSource: walletOffersUsableIndexer ? "wallet" : "canonical-preview",
   });
 
   try {
@@ -312,15 +330,20 @@ async function buildPreviewProviders(
  * The runtime facts both era branches report around indexer-provider
  * construction. See `diagnostics.ts` for what is and is not recorded.
  *
- * `config` is the wallet's `getConfiguration()` result, passed through
- * UNMODIFIED: `indexerUri` / `indexerWsUri` are recorded exactly as the
- * provider receives them, which is what establishes whether this file
- * transforms or overrides anything. It does not.
+ * `config` is the wallet's `getConfiguration()` result and is recorded
+ * UNMODIFIED under `indexerUri` / `indexerWsUri`, so the wallet's actual
+ * values stay visible even on the arm that does not use them.
+ *
+ * `endpoints` is what the provider is REALLY built with, and is reported as
+ * `passedToProvider` — the two are the same on the v9 arm and deliberately
+ * different on the retained Preview arm, which is precisely the fact this
+ * diagnostic exists to make visible.
  */
 function providerConfigFacts(
   config: Awaited<ReturnType<ProviderConnector["getConfiguration"]>>,
   requestedNetworkId: string,
   builder: "buildV9Providers" | "buildPreviewProviders",
+  endpoints: { queryURL: string; subscriptionURL: string },
 ) {
   return {
     era: ERA,
@@ -334,7 +357,7 @@ function providerConfigFacts(
     // KEY NAMES ONLY. Proves the values came from getConfiguration() and that
     // the fields this app reads are actually present on it.
     walletConfigKeys: Object.keys(config as object),
-    passedToProvider: { queryURL: config.indexerUri, subscriptionURL: config.indexerWsUri },
+    passedToProvider: endpoints,
   };
 }
 

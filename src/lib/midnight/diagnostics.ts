@@ -302,8 +302,21 @@ export type ProviderConfigDiagnostic = {
   readonly indexerWsMatchesKnownGood: boolean;
   /** Whether `options.networkId` equals the known-good Preview network id. */
   readonly networkIdMatchesKnownGood: boolean;
-  /** The values this module actually handed to `indexerPublicDataProvider`. */
+  /**
+ * The values this module actually handed to `indexerPublicDataProvider`.
+ *
+ * Equal to `indexerUri` / `indexerWsUri` on arms that follow the wallet's
+ * configuration, and deliberately different on the retained Preview arm, which
+ * pins the canonical Preview indexer because 1AM Wallet reports its proof
+ * server there. The distinction is the whole point of recording both.
+ */
   readonly passedToProvider: { readonly queryURL: unknown; readonly subscriptionURL: unknown };
+  /**
+   * Where the endpoint the provider was built with came from: `"wallet"` when
+   * the wallet's own value was usable, `"canonical-preview"` when the era pins
+   * the canonical endpoint because the wallet's was not.
+   */
+  readonly indexerSource?: "wallet" | "canonical-preview";
 };
 
 /**
