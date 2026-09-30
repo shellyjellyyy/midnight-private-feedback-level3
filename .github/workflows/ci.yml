@@ -52,13 +52,51 @@ jobs:
         run: npm run check:dust-patch
 
       # Compiler versions are pinned explicitly below (+0.34.0 for the current
-      # era, +0.31.1 for the retained Preview era). The setup action's own
-      # "latest" is a bootstrap only; each compile re-pins to a fixed release,
+      # era, +0.31.1 for the retained Preview era). BOTH are provisioned here
+      # explicitly and the compile steps below re-pin to those exact releases,
       # so the artifacts are reproducible rather than tracking a moving tag.
-      - name: Set up the Compact compiler
+      #
+      # Why NOT compact-version: "latest": that input makes the action run a
+      # bare `compact update`, which installs ONLY the newest published
+      # toolchain (0.35.0 today). The pinned releases are then simply absent,
+      # and `compact compile +0.34.0` aborts before compiling anything with
+      #   Couldn't find compiler for x86_64-unknown-linux-musl (0.34.0)
+      #   Directory does not exist: ~/.compact/versions/0.34.0/x86_64-unknown-linux-musl
+      # The action's own `compact update ... || true` also swallows any install
+      # failure, so a bad bootstrap still prints "installed successfully".
+      # The step below therefore re-provisions and then verifies both versions
+      # for real instead of trusting the action's success message.
+      - name: Set up the Compact compiler (v9 toolchain 0.34.0)
         uses: midnightntwrk/setup-compact-action@v1
         with:
-          compact-version: "latest"
+          compact-version: "0.34.0"
+
+      # The action installs exactly one version per invocation, so the retained
+      # Preview toolchain is provisioned with the same official CLI command the
+      # action uses internally. Toolchains live in per-version directories under
+      # $HOME/.compact/versions/<version>/<target-triple>, so this is purely
+      # additive: it cannot remove or downgrade the 0.34.0 already installed.
+      # `--no-set-default` leaves 0.34.0 as the default toolchain. Neither
+      # compile step depends on the default — both pin their own version.
+      - name: Provision the retained v8 toolchain (0.31.1)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: compact update 0.31.1 --no-set-default
+
+      # Deterministic proof that both pinned toolchains resolve, instead of
+      # relying on a printed "setup succeeded" line. `compact compile +<v>
+      # --version` performs the exact same version lookup that failed in CI, so
+      # a missing toolchain fails here with a precise message rather than
+      # halfway through the compile steps.
+      - name: Verify both pinned Compact toolchains are installed
+        shell: bash
+        run: |
+          set -euo pipefail
+          compact --version
+          test "$(compact compile +0.34.0 --version)" = "0.34.0"
+          test "$(compact compile +0.31.1 --version)" = "0.31.1"
+          echo "OK: compactc 0.34.0 (v9) and 0.31.1 (v8) both installed and resolvable."
 
       - name: Compile the Compact contract (current era, v9 -> managed/feedback)
         run: npm run compile:v9
