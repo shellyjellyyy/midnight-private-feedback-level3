@@ -1,0 +1,213 @@
+{
+  "generatedAt": "2026-09-30T05:17:43.4378692+05:30",
+  "runtimePatch": "scripts/patch-dust-empty-actions.mjs (balanceTransactions + dryRunFee)",
+  "proofServer": "https://proof-server.preview.midnight.network",
+  "deployment": {
+    "network": "preview",
+    "era": "retained ledger-v8 (compactc 0.31.1 / runtime 0.16.0)",
+    "address": "916ae63acf5d4256a33c249cf138938cb9cb33210cf6081feecb2a18648248bc",
+    "reusedExistingContract": true,
+    "deployTxId": null,
+    "deployTxHash": null,
+    "deployStatus": null,
+    "deployBlockHeight": null,
+    "stateFoundOnChain": true,
+    "verifierKeysByteMatched": true,
+    "adminIdentityOnChain": "c6525cdbbbe7692b6167c69a3ed7c21d8aea608499df98ebe21e9c86f281f9b7"
+  },
+  "networkEndpoints": {
+    "indexer": "https://indexer.preview.midnight.network/api/v4/graphql",
+    "node": "https://rpc.preview.midnight.network",
+    "proofServer": "https://proof-server.preview.midnight.network",
+    "networkId": "preview"
+  },
+  "runReport": {
+    "deployment": {
+      "network": "preview",
+      "era": "retained ledger-v8 (compactc 0.31.1 / runtime 0.16.0)",
+      "address": "916ae63acf5d4256a33c249cf138938cb9cb33210cf6081feecb2a18648248bc",
+      "reusedExistingContract": true,
+      "deployTxId": null,
+      "deployTxHash": null,
+      "deployStatus": null,
+      "deployBlockHeight": null,
+      "stateFoundOnChain": true,
+      "verifierKeysByteMatched": true,
+      "adminIdentityOnChain": "c6525cdbbbe7692b6167c69a3ed7c21d8aea608499df98ebe21e9c86f281f9b7"
+    },
+    "networkEndpoints": {
+      "indexer": "https://indexer.preview.midnight.network/api/v4/graphql",
+      "node": "https://rpc.preview.midnight.network",
+      "proofServer": "https://proof-server.preview.midnight.network",
+      "networkId": "preview"
+    },
+    "adminCoinAddress": "38b83b9b14f1ee65b768c8e663dd69f1a4c29987c7043e5ea9e79765ef29ca8a",
+    "participantCoinAddress": "0056d0641c218fe82d985c6116ffbbaca7fd5cd6e0ac888ad435f0a632d3fe48",
+    "adminIdentityPublic": "c6525cdbbbe7692b6167c69a3ed7c21d8aea608499df98ebe21e9c86f281f9b7",
+    "adminNight": "5000000000",
+    "participantNight": "5000000000",
+    "adminDust": "11399696979999999995",
+    "participantDust": "11397712899999999999",
+    "transactions": [
+      {
+        "op": "registerParticipant:participant-1",
+        "txId": "0019f10cb908060197b07b3c07413b7b08d3d44125bf94dfd7ac65316709fd87e8",
+        "status": "SucceedEntirely",
+        "ok": true
+      },
+      {
+        "op": "registerParticipant:participant-2",
+        "txId": "0090d1aac1ff694aec1d65db6019d19e6ec9cdd66351bf1e52814add24ab4fe7cb",
+        "status": "SucceedEntirely",
+        "ok": true
+      },
+      {
+        "op": "submitFeedback",
+        "txId": "00147b453a666dcf2bd3d5204273f0e5ed551611486fcbcdff1874f1d840c95f2d",
+        "status": "SucceedEntirely",
+        "ok": true
+      },
+      {
+        "op": "tally",
+        "before": {
+          "participantCount": "2",
+          "responseCount": "0",
+          "rating1": "0",
+          "rating2": "0",
+          "rating3": "0",
+          "rating4": "0",
+          "rating5": "0",
+          "surveyOpen": true,
+          "usedNullifiers": "0"
+        },
+        "afterRegistration": {
+          "participantCount": "4",
+          "responseCount": "0",
+          "rating1": "0",
+          "rating2": "0",
+          "rating3": "0",
+          "rating4": "0",
+          "rating5": "0",
+          "surveyOpen": true,
+          "usedNullifiers": "0"
+        },
+        "afterSubmit": {
+          "participantCount": "4",
+          "responseCount": "1",
+          "rating1": "0",
+          "rating2": "0",
+          "rating3": "0",
+          "rating4": "1",
+          "rating5": "0",
+          "surveyOpen": true,
+          "usedNullifiers": "1"
+        }
+      },
+      {
+        "op": "setSurveyOpen(false)",
+        "txId": "00ae4a699badbdb98476c211940c3e6f894d11058c6dee247ce635f5bee0925c15",
+        "status": "SucceedEntirely",
+        "ok": true
+      },
+      {
+        "op": "setSurveyOpen(true)",
+        "txId": "0088aac7fbfde4471934107c200c4d1886b1c296f0efab2d82f4f044dd79751bdc",
+        "status": "SucceedEntirely",
+        "ok": true
+      },
+      {
+        "op": "final-tally",
+        "tally": {
+          "participantCount": "4",
+          "responseCount": "1",
+          "rating1": "0",
+          "rating2": "0",
+          "rating3": "0",
+          "rating4": "1",
+          "rating5": "0",
+          "surveyOpen": true,
+          "usedNullifiers": "1"
+        }
+      }
+    ],
+    "negativeTests": [
+      {
+        "name": "unregistered-participant",
+        "expected": "reject",
+        "actual": "construction-failure-before-submission: Unexpected error executing scoped transaction '<unnamed>': ContractRuntimeError: Error executing circuit 'submitFeedback'",
+        "pass": true
+      },
+      {
+        "name": "invalid-rating-7",
+        "expected": "reject",
+        "actual": "construction-failure-before-submission: Unexpected error executing scoped transaction '<unnamed>': Error: failed assert: rating must be between 1 and 5",
+        "pass": true
+      },
+      {
+        "name": "closed-survey",
+        "expected": "reject",
+        "actual": "construction-failure-before-submission: Unexpected error executing scoped transaction '<unnamed>': Error: failed assert: the survey is not currently accepting responses",
+        "pass": true
+      },
+      {
+        "name": "duplicate-nullifier",
+        "expected": "reject",
+        "actual": "construction-failure-before-submission: Unexpected error executing scoped transaction '<unnamed>': Error: failed assert: this respondent has already submitted feedback",
+        "pass": true
+      },
+      {
+        "name": "unauthorized-admin-action",
+        "expected": "reject",
+        "actual": "construction-failure-before-submission: Unexpected error executing scoped transaction '<unnamed>': Error: failed assert: only the admin can open or close the survey",
+        "pass": true
+      }
+    ],
+    "adminSecretStorage": ".admin-secret-preview",
+    "note": "Rating is PUBLIC by design (per-rating tally counters). Secrets never printed: seed, admin secret, participant secrets."
+  },
+  "independentOnChainVerification": {
+    "method": "Re-queried the Preview indexer directly; does NOT read the run log",
+    "contract": "916ae63acf5d4256a33c249cf138938cb9cb33210cf6081feecb2a18648248bc",
+    "onChainState": {
+      "participantCount": 4,
+      "responseCount": 1,
+      "surveyOpen": true,
+      "usedNullifiers": 1,
+      "ratingTally": "1->0 2->0 3->0 4->1 5->0"
+    },
+    "transactions": [
+      {
+        "op": "registerParticipant:participant-1",
+        "walletTxId": "0019f10cb908060197b07b3c07413b7b08d3d44125bf94dfd7ac65316709fd87e8",
+        "onChainHash": "d9f7d13f726de779ffac719adbaf2101fa8607aedcf9fc748452dd49162aec46",
+        "block": 1084400
+      },
+      {
+        "op": "registerParticipant:participant-2",
+        "walletTxId": "0090d1aac1ff694aec1d65db6019d19e6ec9cdd66351bf1e52814add24ab4fe7cb",
+        "onChainHash": "c39b3c6cbd925bf3c62e5fbe2650b9e2a67f891d22a6e3e7870ff16e05d91ad7",
+        "block": 1084404
+      },
+      {
+        "op": "submitFeedback",
+        "walletTxId": "00147b453a666dcf2bd3d5204273f0e5ed551611486fcbcdff1874f1d840c95f2d",
+        "onChainHash": "25d5fd3307dd92434383a2ac953a11f6960ffcc597e35cdfae51ff39c21814c3",
+        "block": 1084410
+      },
+      {
+        "op": "setSurveyOpen(false)",
+        "walletTxId": "00ae4a699badbdb98476c211940c3e6f894d11058c6dee247ce635f5bee0925c15",
+        "onChainHash": "0327c4570a53b4ee3c27ad5ed29864de0b731fce82efde84476d13e9404067f2",
+        "block": 1084415
+      },
+      {
+        "op": "setSurveyOpen(true)",
+        "walletTxId": "0088aac7fbfde4471934107c200c4d1886b1c296f0efab2d82f4f044dd79751bdc",
+        "onChainHash": "f595c8a0fe26cee299e14f965c71a69afe14028b1cc7d89600bdcb5dd77021f7",
+        "block": 1084419
+      }
+    ],
+    "blockOrder": "1084400 -> 1084404 -> 1084410 -> 1084415 -> 1084419 (strictly increasing)",
+    "verdict": "VERIFIED"
+  }
+}

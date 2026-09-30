@@ -1,0 +1,59 @@
+================================================================================
+REAL MIDNIGHT PREVIEW E2E — EXCERPT FROM THE DEPLOYMENT RUN LOG
+================================================================================
+Source log : logs/deploy-preview-run-20260930-041707.log  (full log is
+             gitignored: it contains absolute local filesystem paths from stack
+             traces. This excerpt is the scrubbed, citable subset.)
+Run date   : 2026-09-30
+Network    : Midnight Preview (https://indexer.preview.midnight.network)
+Contract   : 916ae63acf5d4256a33c249cf138938cb9cb33210cf6081feecb2a18648248bc
+Mode       : --contract <address>  (re-validated existing contract; this run
+             broadcast NO contract-deployment transaction)
+Secrets    : redacted. No seed, admin secret or participant secret appears in
+             this excerpt or in the source log. The wallet seed line in the
+             source log reads "Your wallet seed is: [REDACTED]".
+
+--------------------------------------------------------------------------------
+READ THIS BEFORE QUOTING THE RUN
+--------------------------------------------------------------------------------
+This run PREDATES the deploy-preview.mjs exit gate. At the time it executed, the
+script still ended with an unconditional process.exit(0), so the absence of a
+"VERDICT" block in this log is expected and is NOT evidence that the new gate
+was exercised on a live deployment. The gate added afterwards is verified only
+by the local, offline test in tests/deploy-verdict.test.ts (13 cases, including
+the recorded report below).
+
+The run still establishes everything the gate now checks, independently:
+SucceedEntirely on every positive step, rejection of all five negative tests,
+responseCount 0 -> 1, and usedNullifiers 0 -> 1. Those facts are re-verified
+independently of this log by npm run verify:onchain (see
+evidence/preview-e2e-20260930.json -> independentOnChainVerification).
+
+--------------------------------------------------------------------------------
+EXCERPT — verbatim lines from the run
+--------------------------------------------------------------------------------
+CONTRACT ADDRESS: 916ae63acf5d4256a33c249cf138938cb9cb33210cf6081feecb2a18648248bc (reused — no deployment transaction was broadcast)
+  on-chain state:   found via indexer
+  on-chain ledger:  surveyOpen=true participantCount=2 responseCount=0 adminAddress=c6525cdbbbe7692b…
+  verifier keys:    byte-match confirmed (findDeployedContract attach succeeded)
+  tally before: {"participantCount":"2","responseCount":"0","rating1":"0","rating2":"0","rating3":"0","rating4":"0","rating5":"0","surveyOpen":true,"usedNullifiers":"0"}
+
+== Registering 2 participants (real admin transactions) ==
+  register participant-1: status=SucceedEntirely
+  register participant-2: status=SucceedEntirely
+  tally after registration: {"participantCount":"4","responseCount":"0","rating1":"0","rating2":"0","rating3":"0","rating4":"0","rating5":"0","surveyOpen":true,"usedNullifiers":"0"}
+
+== Real anonymous submission (participant-1, rating 4) ==
+  submitFeedback: status=SucceedEntirely
+  tally after submission: {"participantCount":"4","responseCount":"1","rating1":"0","rating2":"0","rating3":"0","rating4":"1","rating5":"0","surveyOpen":true,"usedNullifiers":"1"}
+
+== Negative tests (real attempts against the deployed contract) ==
+  unregistered-participant: construction-failure-before-submission: … Error executing circuit 'submitFeedback' (expected reject) -> PASS
+  invalid-rating-7:          construction-failure-before-submission: … failed assert: rating must be between 1 and 5 (expected reject) -> PASS
+  closed-survey:             construction-failure-before-submission: … failed assert: the survey is not currently accepting responses (expected reject) -> PASS
+  duplicate-nullifier:       construction-failure-before-submission: … failed assert: this respondent has already submitted feedback (expected reject) -> PASS
+  unauthorized-admin-action: construction-failure-before-submission: … failed assert: only the admin can open or close the survey (expected reject) -> PASS
+
+  setSurveyOpen(false): status=SucceedEntirely
+  setSurveyOpen(true):  status=SucceedEntirely
+  final tally: {"participantCount":"4","responseCount":"1","rating1":"0","rating2":"0","rating3":"0","rating4":"1","rating5":"0","surveyOpen":true,"usedNullifiers":"1"}
