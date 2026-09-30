@@ -28,7 +28,11 @@
  *
  * Compiler invocation: `compact compile +<version>` pins the compiler release
  * explicitly (no "latest"). On Windows the compiler lives inside WSL, so the
- * command is wrapped with `wsl -e bash -lc`; on Linux it runs directly.
+ * command is wrapped with `wsl -e bash -lc` and the paths are translated from
+ * `C:\...` to `/mnt/c/...`. On Linux/macOS (including GitHub Actions) the
+ * compiler is already Linux-side, so POSIX paths are passed through unchanged.
+ * The translation rule itself lives in scripts/lib-compiler-path.mjs and is
+ * covered by tests/compile-path.test.ts.
  *
  * Every step verifies its own output and fails loudly: compiler version in
  * compiler/contract-info.json, checkRuntimeVersion string in the generated
@@ -41,6 +45,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
+import { compilerRunsInWsl, toCompilerPath } from "./lib-compiler-path.mjs";
 
 const ERAS = {
   v9: {
@@ -77,19 +82,19 @@ if (!existsSync(source)) {
 
 const sha256 = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
-/** Windows -> WSL POSIX path translation for this machine's checkout. */
-const toWslPath = (p) => {
-  const m = p.replace(/\\/g, "/").match(/^([A-Za-z]):\/(.*)$/);
-  if (!m) throw new Error(`cannot translate to a WSL path: ${p}`);
-  return `/mnt/${m[1].toLowerCase()}/${m[2]}`;
-};
-
+/**
+ * Invoke the pinned Compact compiler over the resolved source/output paths.
+ *
+ * Paths handed to the compiler are translated by `toCompilerPath`: on Windows
+ * the compiler lives inside WSL, so `C:\...` becomes `/mnt/c/...`; on
+ * Linux/macOS (GitHub Actions included) the path is already POSIX and is
+ * passed through untouched. See scripts/lib-compiler-path.mjs.
+ */
 function runCompactCompiler() {
-  const args = `compact compile +${era.compiler} '${toWslPath(source)}' '${toWslPath(outDir)}'`;
-  const cmd =
-    process.platform === "win32"
-      ? `wsl -e bash -lc "cd '${toWslPath(repoRoot)}' && ${args}"`
-      : args;
+  const args = `compact compile +${era.compiler} '${toCompilerPath(source)}' '${toCompilerPath(outDir)}'`;
+  const cmd = compilerRunsInWsl()
+    ? `wsl -e bash -lc "cd '${toCompilerPath(repoRoot)}' && ${args}"`
+    : args;
   console.log(`$ ${cmd}`);
   execSync(cmd, { stdio: "inherit", cwd: repoRoot });
 }
