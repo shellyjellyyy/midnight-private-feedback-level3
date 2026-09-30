@@ -29,6 +29,12 @@
  *   whether the configuration actually came from `getConfiguration()` and
  *   whether the field this app reads under that name is present at all.
  *
+ *   Endpoint QUERY STRINGS are redacted before anything is recorded or logged —
+ *   see {@link redactEndpoint}. This is not hypothetical: 1AM Wallet supplies
+ *   `indexerUri` carrying a `session_token`, which is live connection material.
+ *   Recording it verbatim would write a credential into the console, into the
+ *   in-page panel, and into any screenshot taken of that panel.
+ *
  * DIAGNOSTIC ONLY
  *   Nothing here alters configuration, supplies a fallback, retries, or
  *   changes a provider's behaviour. Every function is a pure read plus a
@@ -39,13 +45,121 @@
 const TAG = "[midnight-diagnostics]";
 
 /**
+ * Endpoint query-parameter names whose VALUES are credentials. Matched
+ * case-insensitively against every query parameter of an endpoint URL.
+ *
+ * `session_token` is observed in 1AM Wallet's `indexerUri`. The rest are names
+ * this project or its wallet could plausibly carry; note that
+ * {@link redactEndpoint} drops the value of EVERY parameter regardless of its
+ * name, because an unfamiliar name is not evidence that its value is public.
+ */
+const SENSITIVE_QUERY_PARAMS = [
+  "session_token",
+  "sessiontoken",
+  "session_id",
+  "sessionid",
+  "access_token",
+  "accesstoken",
+  "api_key",
+  "apikey",
+  "token",
+  "auth",
+  "authorization",
+  "password",
+  "secret",
+  "key",
+  "signature",
+  "sig",
+] as const;
+
+/**
+ * True when a string could carry an endpoint's credential tail — i.e. it has a
+ * scheme, a query string, or a fragment.
+ *
+ * A string with none of those (`"v4"`, `"preview"`, a bare 64-hex contract
+ * address, an error message) cannot be hiding a session token, and mangling it
+ * would destroy the very values this diagnostic exists to report.
+ */
+function mayCarryEndpointCredentials(value: string): boolean {
+  return value.includes("://") || value.includes("?") || value.includes("#");
+}
+
+/**
+ * Returns an endpoint safe to record and display: scheme, host, port and path
+ * are kept — they are public, and they are the whole point of the comparison —
+ * while every query-string value is replaced with a redaction marker.
+ *
+ * A value that cannot carry endpoint credentials is returned UNCHANGED. A
+ * non-string, or an unparseable string that does have a query/fragment, is
+ * reduced to a safe note rather than passed through, so a malformed value
+ * cannot smuggle a credential out.
+ */
+export function redactEndpoint(value: unknown): string | null {
+  if (typeof value !== "string") return value === null ? null : `<non-string: ${typeof value}>`;
+  if (value.length === 0) return value;
+  if (!mayCarryEndpointCredentials(value)) return value;
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    // Not a URL, but it still has a query/fragment that may hold a token, so
+    // record only the part before the first separator.
+    const cut = value.search(/[?#]/);
+    return `${cut === -1 ? value : value.slice(0, cut)}<unparseable endpoint: query/fragment withheld>`;
+  }
+
+  const names = [...url.searchParams.keys()];
+  if (names.length > 0) {
+    const flagged = new Set(
+      names.filter((name) =>
+        SENSITIVE_QUERY_PARAMS.includes(name.toLowerCase() as (typeof SENSITIVE_QUERY_PARAMS)[number]),
+      ),
+    );
+    // Built by hand rather than assigned to `url.search`, because URLSearchParams
+    // percent-encodes the marker and would leave `%3Credacted%3E` on screen.
+    const redacted = names
+      .map((name) => `${name}=${flagged.has(name) ? "<redacted>" : "<withheld>"}`)
+      .join("&");
+    const base = `${url.origin}${url.pathname}`;
+    return `${base}?${redacted}`;
+  }
+
+  const base = `${url.origin}${url.pathname}`;
+  // A fragment can carry a token too, and url.origin/pathname already dropped it.
+  return base;
+}
+
+/**
+ * Recursively replaces every endpoint-looking string in a diagnostic value with
+ * its redacted form, at any depth.
+ *
+ * Applied to every recorded entry so a credential cannot reach the console or
+ * the panel through a field this module did not enumerate.
+ */
+export function redactDeep(value: unknown, depth = 0): unknown {
+  if (depth > 8) return "<nesting withheld>";
+  if (typeof value === "string") return redactEndpoint(value);
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item, depth + 1));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = redactDeep(inner, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * An in-page record of every diagnostic emitted this session, so the values can
  * be read off a DEPLOYED build without a DevTools console.
  *
  * The same objects that reach `console.info` are recorded here — nothing extra
  * is captured, and nothing here alters behaviour. Entries are appended in
  * emission order and capped so a repeated submission cannot grow without
- * bound.
+ * bound. Every value is redacted on the way in (see {@link redactEndpoint}), so
+ * a credential in an endpoint query string never reaches this log.
  */
 export type DiagnosticEntry = {
   readonly at: string;
@@ -56,11 +170,18 @@ export type DiagnosticEntry = {
 const MAX_ENTRIES = 40;
 const recorded: DiagnosticEntry[] = [];
 
-/** Records and logs one diagnostic entry. */
+/**
+ * Records and logs one diagnostic entry.
+ *
+ * The value is passed through {@link redactDeep} HERE, at the single boundary
+ * where anything leaves this module, so no caller can bypass redaction by
+ * adding a field.
+ */
 function emit(label: string, value: unknown): void {
-  recorded.push({ at: new Date().toISOString(), label, value });
+  const safe = redactDeep(value);
+  recorded.push({ at: new Date().toISOString(), label, value: safe });
   if (recorded.length > MAX_ENTRIES) recorded.splice(0, recorded.length - MAX_ENTRIES);
-  console.info(`${TAG} ${label}`, value);
+  console.info(`${TAG} ${label}`, safe);
 }
 
 /** Every diagnostic recorded this session, oldest first. */

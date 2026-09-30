@@ -23,6 +23,8 @@ import {
   KNOWN_GOOD_PREVIEW,
   KNOWN_GOOD_PREVIEW_CONTRACT_ADDRESS,
   probeRawContractState,
+  redactDeep,
+  redactEndpoint,
   reportJoinInput,
   reportProviderConfig,
 } from "../src/lib/midnight/diagnostics";
@@ -241,6 +243,125 @@ describe("reportJoinInput", () => {
     reportJoinInput({ era: "v8-preview", buildEra: "v8-preview", address: wrong });
     expect(last().contractAddress.matchesKnownGood).toBe(false);
     expect(last().contractAddress.value).toBe(wrong);
+  });
+});
+
+/**
+ * 1AM Wallet supplies `indexerUri` with a `session_token` in the query string.
+ * That is live connection material: it must not reach the console, the in-page
+ * panel, a screenshot of the panel, or the git history.
+ */
+describe("redactEndpoint", () => {
+  const SECRET = "s3cr3t-session-value-do-not-log";
+
+  it("removes a session_token value while keeping the comparable endpoint", () => {
+    const redacted = redactEndpoint(
+      `https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`,
+    );
+    expect(redacted).not.toContain(SECRET);
+    expect(redacted).toContain("https://api-preview.1am.xyz/api/v4/graphql");
+    // The parameter NAME is kept, so the diagnosis stays useful.
+    expect(redacted).toContain("session_token=");
+    expect(redacted).toContain("<redacted>");
+  });
+
+  it("removes EVERY query value, including parameter names it does not recognise", () => {
+    // An unfamiliar parameter name is not evidence that its value is public.
+    const redacted = redactEndpoint(
+      `https://api-preview.1am.xyz/api/v4/graphql?something_unexpected=${SECRET}`,
+    );
+    expect(redacted).not.toContain(SECRET);
+    expect(redacted).toContain("something_unexpected=");
+  });
+
+  it("removes every parameter when several are present", () => {
+    const redacted = redactEndpoint(
+      `wss://api-preview.1am.xyz/api/v4/graphql/ws?session_token=${SECRET}&api_key=${SECRET}&x=${SECRET}`,
+    );
+    expect(redacted).not.toContain(SECRET);
+    expect(redacted).toContain("api_key=<redacted>");
+    expect(redacted).toContain("x=<withheld>");
+  });
+
+  it("drops the fragment, which can also carry a token", () => {
+    expect(redactEndpoint(`https://h.test/p?a=b#${SECRET}`)).not.toContain(SECRET);
+  });
+
+  it("leaves a clean public endpoint byte-identical apart from normalisation", () => {
+    expect(redactEndpoint(KNOWN_GOOD_PREVIEW.indexerUri)).toBe(KNOWN_GOOD_PREVIEW.indexerUri);
+    expect(redactEndpoint(KNOWN_GOOD_PREVIEW.indexerWsUri)).toBe(KNOWN_GOOD_PREVIEW.indexerWsUri);
+  });
+
+  it("never passes a non-string or unparseable value through verbatim", () => {
+    expect(redactEndpoint(null)).toBeNull();
+    expect(redactEndpoint(42)).toBe("<non-string: number>");
+    expect(redactEndpoint(undefined)).toBe("<non-string: undefined>");
+    // A non-URL string that still has a token tail keeps only the pre-`?` part.
+    const odd = redactEndpoint(`not-a-url?session_token=${SECRET}`);
+    expect(odd).not.toContain(SECRET);
+  });
+
+  it("keeps the comparison booleans meaningful for a tokenised endpoint", () => {
+    // Redaction must not make a mismatching endpoint look like a match.
+    const redacted = redactEndpoint(`https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`);
+    expect(redacted).not.toBe(KNOWN_GOOD_PREVIEW.indexerUri);
+    expect(apiVersionOf(redacted)).toBe("v4");
+  });
+});
+
+describe("redactDeep", () => {
+  const SECRET = "s3cr3t-session-value-do-not-log";
+
+  it("redacts endpoints nested in objects and arrays", () => {
+    const result = redactDeep({
+      indexerUri: `https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`,
+      passedToProvider: {
+        queryURL: `https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`,
+        list: [`wss://api-preview.1am.xyz/api/v4/graphql/ws?session_token=${SECRET}`],
+      },
+      safeBoolean: true,
+      safeNumber: 3,
+    });
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    // Non-endpoint values pass through untouched.
+    expect((result as Record<string, unknown>).safeBoolean).toBe(true);
+    expect((result as Record<string, unknown>).safeNumber).toBe(3);
+  });
+
+  it("bounds recursion so a cyclic-looking structure cannot run away", () => {
+    let deep: Record<string, unknown> = { value: `https://h.test/?session_token=${SECRET}` };
+    for (let i = 0; i < 20; i += 1) deep = { nested: deep };
+    expect(JSON.stringify(redactDeep(deep))).not.toContain(SECRET);
+  });
+});
+
+describe("diagnosticsLog redaction at the emit boundary", () => {
+  const SECRET = "s3cr3t-session-value-do-not-log";
+
+  it("keeps a wallet session_token out of the recorded log and the console", () => {
+    const { spy } = captureInfo();
+    reportProviderConfig({
+      phase: "before-construction",
+      era: "v8-preview",
+      builder: "buildPreviewProviders",
+      expectedNetworkId: "preview",
+      requestedNetworkId: "preview",
+      registeredNetworkId: "preview",
+      walletConfigNetworkId: "preview",
+      walletConfigKeys: ["indexerUri", "indexerWsUri", "proverServerUri"],
+      indexerUri: `https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`,
+      indexerWsUri: `wss://api-preview.1am.xyz/api/v4/graphql/ws?session_token=${SECRET}`,
+      passedToProvider: {
+        queryURL: `https://api-preview.1am.xyz/api/v4/graphql?session_token=${SECRET}`,
+        subscriptionURL: `wss://api-preview.1am.xyz/api/v4/graphql/ws?session_token=${SECRET}`,
+      },
+    });
+
+    // Neither the recorded log NOR the console line may contain the secret.
+    expect(JSON.stringify(diagnosticsLog())).not.toContain(SECRET);
+    expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
+    // The endpoint identity is still visible, so the comparison still works.
+    expect(JSON.stringify(diagnosticsLog())).toContain("api-preview.1am.xyz");
   });
 });
 
