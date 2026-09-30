@@ -39,7 +39,7 @@ import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client
 // Kept as a top-of-file import so the v9 arm fails visibly if ledger-v9 is
 // absent; the Preview-era arm never imports it at all.
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
-import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import { getNetworkId, setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import type {
   MidnightProviders,
   PrivateStateId,
@@ -49,7 +49,8 @@ import { createWalletProvidersFromConnectedAPI } from "./walletAdapter.js";
 import type { FeedbackPrivateState } from "./witnesses.js";
 import type { FeedbackCircuitId } from "./contract.js";
 import type { FeedbackCircuitIdV8 } from "./contract-v8.js";
-import { ERA, ZK_HTTP_ROUTE } from "./era.js";
+import { ERA, EXPECTED_NETWORK_ID, ZK_HTTP_ROUTE } from "./era.js";
+import { reportProviderConfig } from "./diagnostics.js";
 
 /**
  * The string every stored private state is keyed under. Witnesses read the
@@ -141,9 +142,17 @@ async function buildV9Providers(
   );
 
   const config = await connectedAPI.getConfiguration();
+  reportProviderConfig({
+    phase: "before-construction",
+    ...providerConfigFacts(config, options.networkId, "buildV9Providers"),
+  });
   const publicDataProvider = indexerPublicDataProvider({
     queryURL: config.indexerUri,
     subscriptionURL: config.indexerWsUri,
+  });
+  reportProviderConfig({
+    phase: "after-construction",
+    ...providerConfigFacts(config, options.networkId, "buildV9Providers"),
   });
 
   try {
@@ -234,9 +243,17 @@ async function buildPreviewProviders(
   );
 
   const config = await connectedAPI.getConfiguration();
+  reportProviderConfig({
+    phase: "before-construction",
+    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders"),
+  });
   const publicDataProvider = indexerPublicDataProvider({
     queryURL: config.indexerUri,
     subscriptionURL: config.indexerWsUri,
+  });
+  reportProviderConfig({
+    phase: "after-construction",
+    ...providerConfigFacts(config, options.networkId, "buildPreviewProviders"),
   });
 
   try {
@@ -288,5 +305,50 @@ async function buildPreviewProviders(
       console.error("[providers] could not release the indexer after a failed build", disposeError);
     });
     throw error;
+  }
+}
+
+/**
+ * The runtime facts both era branches report around indexer-provider
+ * construction. See `diagnostics.ts` for what is and is not recorded.
+ *
+ * `config` is the wallet's `getConfiguration()` result, passed through
+ * UNMODIFIED: `indexerUri` / `indexerWsUri` are recorded exactly as the
+ * provider receives them, which is what establishes whether this file
+ * transforms or overrides anything. It does not.
+ */
+function providerConfigFacts(
+  config: Awaited<ReturnType<ProviderConnector["getConfiguration"]>>,
+  requestedNetworkId: string,
+  builder: "buildV9Providers" | "buildPreviewProviders",
+) {
+  return {
+    era: ERA,
+    builder,
+    expectedNetworkId: EXPECTED_NETWORK_ID,
+    requestedNetworkId,
+    registeredNetworkId: readRegisteredNetworkId(),
+    walletConfigNetworkId: config.networkId,
+    indexerUri: config.indexerUri,
+    indexerWsUri: config.indexerWsUri,
+    // KEY NAMES ONLY. Proves the values came from getConfiguration() and that
+    // the fields this app reads are actually present on it.
+    walletConfigKeys: Object.keys(config as object),
+    passedToProvider: { queryURL: config.indexerUri, subscriptionURL: config.indexerWsUri },
+  };
+}
+
+/**
+ * The globally registered network id, or null when it cannot be read.
+ *
+ * `getNetworkId()` throws if `setNetworkId()` has not run. Reading it back is
+ * what proves the SDK actually holds the wallet's network id (and not some
+ * other value) at the moment the indexer provider is built.
+ */
+function readRegisteredNetworkId(): string | null {
+  try {
+    return getNetworkId();
+  } catch {
+    return null;
   }
 }

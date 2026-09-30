@@ -25,6 +25,8 @@ import { eraContractBinding } from "./contractDispatch.js";
 import type { FeedbackContract } from "./contract.js";
 import type { FeedbackContractV8 } from "./contract-v8.js";
 import { FEEDBACK_PRIVATE_STATE_ID, type ProviderBundle } from "./providers.js";
+import { ERA } from "./era.js";
+import { probeRawContractState, reportJoinInput } from "./diagnostics.js";
 
 /**
  * A joined contract of either era. Both twins are built from the same contract
@@ -81,6 +83,16 @@ export async function joinFeedbackContract(
   address: ContractAddress,
 ): Promise<JoinedFeedback> {
   const readBack = makeStatusReader(bundle);
+
+  // DIAGNOSTIC ONLY (see diagnostics.ts): record the exact address this join
+  // will pass to the SDK, and observe the outcome of the one indexer read the
+  // retained-era join performs first. No configuration is changed, no fallback
+  // is applied, and the real `findDeployedContract` below still runs and still
+  // decides the outcome.
+  reportJoinInput({ era: bundle.era, buildEra: ERA, address });
+  await probeRawContractState(bundle.era, address, () =>
+    bundle.providers.publicDataProvider.queryRawContractState(address),
+  );
 
   try {
     if (bundle.era === "v8-preview") {
