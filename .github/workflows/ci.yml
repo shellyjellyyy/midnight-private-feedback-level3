@@ -1,0 +1,96 @@
+name: CI
+
+# Every push and every pull request, on any branch. The default CI path is
+# fully deterministic and OFFLINE with respect to Midnight: it needs no private
+# key, no seed, no funded Preview account, no proof server and no RPC endpoint.
+# Nothing in this workflow broadcasts a transaction or deploys a contract.
+#
+# On-chain verification (npm run verify:onchain) is deliberately NOT part of
+# this workflow: it queries live Preview and therefore cannot be a deterministic
+# gate. The result of that run is committed under evidence/ instead.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build, test and integrity-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Reproducible, lockfile-exact install. Note this WIPES node_modules, which
+      # is why the runtime patches are re-applied (and re-verified) below.
+      - name: Install dependencies (npm ci, lockfile-exact)
+        run: npm ci
+
+      - name: Verify dependency resolution and v8/v9 era separation
+        run: npm run check:resolutions
+
+      # Applies the DUST patch, then proves on every push that it applies, is
+      # idempotent, is byte-exactly reversible, and does NOT leak into the
+      # nested v9-era beta.3 copy. Leaves the patch applied for the repo's
+      # required end state.
+      - name: Verify the DUST runtime patch (apply, idempotence, revert, era separation)
+        run: npm run check:dust-patch
+
+      # Compiler versions are pinned explicitly below (+0.34.0 for the current
+      # era, +0.31.1 for the retained Preview era). The setup action's own
+      # "latest" is a bootstrap only; each compile re-pins to a fixed release,
+      # so the artifacts are reproducible rather than tracking a moving tag.
+      - name: Set up the Compact compiler
+        uses: midnightntwrk/setup-compact-action@v1
+        with:
+          compact-version: "latest"
+
+      - name: Compile the Compact contract (current era, v9 -> managed/feedback)
+        run: npm run compile:v9
+
+      - name: Compile the Compact contract (retained era, v8 -> managed/feedback-v8)
+        run: npm run compile:v8
+
+      # tests/feedback.contract.test.ts imports managed/feedback/contract/index.js,
+      # so the suite genuinely requires a prior compile. That is deliberate: the
+      # tests exercise the real generated circuits, not a hand-written model.
+      - name: Run the test suite
+        run: npm test
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build production frontend (current era, v9)
+        run: npm run build
+
+      - name: Build production frontend (retained Preview era, v8)
+        run: npm run build:preview
+
+      - name: Confirm both era artifacts exist and the patch is still applied
+        run: |
+          set -euo pipefail
+          test -f managed/feedback/compiler/contract-info.json
+          test -f managed/feedback-v8/compiler/contract-info.json
+          test -f managed/feedback/keys/submitFeedback.verifier
+          test -f managed/feedback-v8/keys/submitFeedback.verifier
+          grep -q "patch-dust-empty-actions.mjs" \
+            node_modules/@midnight-ntwrk/wallet-sdk-dust-wallet/dist/v1/Transacting.js
+          echo "OK: both era artifacts present and the DUST patch is applied."
+
+      - name: Confirm the Compact source is unchanged by the build
+        run: git diff --exit-code -- contracts/
