@@ -89,3 +89,6 @@ deployment.json
 # also be any gitignored local path.
 .respondent-secret-preview
 .respondent-secret*
+
+.vercel
+.env*
