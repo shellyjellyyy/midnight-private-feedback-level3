@@ -184,7 +184,31 @@ export default defineConfig({
   // declares the same aliases plus a `src/polyfills.ts` that assigns
   // globalThis.Buffer. Both halves are required: the alias makes `buffer`/`process`
   // resolve to their browser builds, and the polyfill populates the global.
+  /**
+   * ONE physical onchain-runtime for the retained ledger-8 era.
+   *
+   * The same-named WASM package resolved to TWO copies in this browser bundle,
+   * which `midnight-js-protocol`'s `assertSharedLedger8Instance` rejects with
+   * `Ledger8InstanceMismatchError` ("two physically distinct copies of
+   * onchain-runtime-v3"). Objects made by one copy are refused by the other
+   * copy's classes, because each copy instantiates its own WASM bindings.
+   *
+   * The copies are DIFFERENT VERSIONS, so aliasing one onto the other would
+   * silently change a version. `dedupe` is the correct tool instead: it makes
+   * every importer in the BROWSER graph resolve to the single top-level
+   * instance, and it does not touch Node. The nested copy lives under
+   * `testkit-js-stable` (a devDependency used only by the Node provisioning
+   * scripts, which resolve the retained runtime through the testkit on
+   * purpose for bit-exactness) and must stay exactly as it is for those.
+   *
+   * `compact-runtime-ledger8` and `onchain-runtime-v3` are the two axes the
+   * retained-era stack crosses, so both are pinned.
+   */
   resolve: {
+    dedupe: [
+      "@midnight-ntwrk/onchain-runtime-v3",
+      "@midnight-ntwrk/compact-runtime",
+    ],
     alias: {
       buffer: "buffer",
       process: "process/browser",
@@ -201,26 +225,17 @@ export default defineConfig({
        * `@midnight-ntwrk/midnight-js-protocol` (see its `createLedger8Engine`,
        * which does `import('compact-runtime-ledger8')`). The second is the
        * scoped devDependency alias this project declares, and it is the name
-       * the generated v8 contract module imports
-       * (`managed/feedback-v8/contract/index.js`).
+       * the generated v8 contract module imports.
        *
-       * Two directories means TWO module instances, so `ChargedState` and
-       * `StateValue` get two different class identities. TypeScript sees one
-       * type and stays quiet; at runtime every `instanceof` and every
-       * wasm-bindgen constructor downcast between the two copies FAILS, which
-       * surfaced as `expected instance of _ChargedState` thrown from the
-       * generated module's `ledger()` helper when the retained-era engine's
-       * decoded state reached it.
+       * Two directories meant two module instances, so `ChargedState` and
+       * `StateValue` got two different class identities. TypeScript saw one
+       * type and stayed quiet; at runtime every `instanceof` and every
+       * wasm-bindgen constructor downcast between the two copies failed, which
+       * surfaced as `expected instance of _ChargedState` from the generated
+       * module's `ledger()` helper.
        *
-       * `midnight-js-protocol` already guards this class of bug with
-       * `assertSharedLedger8Instance`, but only on the `onchain-runtime-v3`
-       * axis — it compares the runtime against its OWN copy and never against
-       * the copy the generated contract holds, so it passes here.
-       *
-       * Aliasing the bare specifier onto the scoped one collapses both onto a
-       * single instance. No package is upgraded, downgraded or reinstalled;
-       * both names already request the identical version
-       * (compact-runtime 0.16.0).
+       * Both names already request the identical version (compact-runtime
+       * 0.16.0), so collapsing them is not a version change.
        */
       "compact-runtime-ledger8": "@midnight-ntwrk/compact-runtime-ledger8",
     },
@@ -229,6 +244,32 @@ export default defineConfig({
   // rather than letting it resolve to nothing. Same as the starter.
   define: {
     global: "globalThis",
+  },
+  /**
+   * Do NOT pre-bundle the retained-era WASM packages.
+   *
+   * These carry wasm-bindgen glue plus a .wasm side file. esbuild's dependency
+   * optimizer inlines such a package into an optimized chunk of its own, so a
+   * package reachable from two different importers is instantiated TWICE, and
+   * the two instances own separate `ChargedState`/`StateValue` classes. The
+   * object one copy builds is refused by the other's checks.
+   *
+   * That is what raised `Ledger8InstanceMismatchError` ("two physically
+   * distinct copies of onchain-runtime-v3") from midnight-js-protocol's own
+   * `assertSharedLedger8Instance`. Excluding them keeps them as real ES
+   * modules, resolved once by path, so there is exactly one instance.
+   *
+   * The official Midnight starter reaches the same result by loading WASM
+   * through vite-plugin-wasm; excluding these from the optimizer is the
+   * zero-install equivalent for packages already shipped as .wasm + glue.
+   */
+  optimizeDeps: {
+    exclude: [
+      "@midnight-ntwrk/onchain-runtime-v3",
+      "@midnight-ntwrk/compact-runtime-ledger8",
+      "@midnight-ntwrk/ledger-v8",
+      "@midnightntwrk/ledger-v8",
+    ],
   },
   build: {
     // The Midnight onchain runtime ships as WASM with top-level await; the

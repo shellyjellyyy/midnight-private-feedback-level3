@@ -71,3 +71,31 @@ describe("retained ledger-8 runtime is a single module instance", () => {
     expect(scoped.QueryContext).toBeDefined();
   });
 });
+
+/**
+ * NOT ASSERTED HERE, AND WHY
+ *
+ * The second axis — `@midnight-ntwrk/onchain-runtime-v3` reached once through
+ * `compact-runtime-ledger8` and once directly — produced
+ * `Ledger8InstanceMismatchError` in the BROWSER bundle. It is reproducible
+ * under Node too, but not through Vitest: Vitest resolves modules with Node
+ * semantics and never runs Vite's dependency optimizer, and the duplication
+ * itself is caused BY that optimizer (esbuild inlines a wasm-bindgen package
+ * into a chunk per importer, so each copy instantiates its own WASM and gets
+ * its own class identities). The `optimizeDeps.exclude` that removes it
+ * applies to the browser build only.
+ *
+ * So this axis is verified where it actually occurs — in the page. Run in the
+ * devtools console on the dev server:
+ *
+ *   Promise.all([
+ *     import('/node_modules/compact-runtime-ledger8/index.js'),
+ *     import('/node_modules/@midnight-ntwrk/onchain-runtime-v3/midnight_onchain_runtime_wasm.js'),
+ *   ]).then(([g, o]) => ({
+ *     chargedStateSame: g.ChargedState === o.ChargedState,
+ *     stateValueSame: g.StateValue === o.StateValue,
+ *     contractStateSame: g.ContractState === o.ContractState,
+ *   }))
+ *
+ * All three must be true. A false there is the dual-instantiation returning.
+ */
