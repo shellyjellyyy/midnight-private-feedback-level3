@@ -63,6 +63,27 @@ export const PREVIEW_INDEXER_HTTP_URI = "https://indexer.preview.midnight.networ
 export const PREVIEW_INDEXER_WS_URI =
   "wss://indexer.preview.midnight.network/api/v4/graphql/ws";
 
+/**
+ * The canonical Midnight Preview proof server.
+ *
+ * WHY THIS EXISTS (the retained v8 Preview arm only)
+ *   The retained-era proof provider is built from the connected wallet's
+ *   `proverServerUri`. The connector type marks that field optional and
+ *   deprecated ("likely to not be present"), and Lace — the fallback wallet —
+ *   is documented not to expose delegated proving at all, so it may omit it.
+ *
+ *   When a wallet supplies no proof server we fall back to this canonical
+ *   Preview endpoint. It is the SAME server the Node admin/provisioning flow
+ *   already proves against on Preview, so this adds no new trust dependency
+ *   and no new moving part: it is a constant for the Preview network, exactly
+ *   like the two indexer constants above.
+ *
+ *   A wallet that DOES supply `proverServerUri` keeps using the wallet's own
+ *   value — the fallback is only reached when the field is absent, so the
+ *   working 1AM path is byte-for-byte unchanged.
+ */
+export const PREVIEW_PROOF_SERVER_URI = "https://proof-server.preview.midnight.network/";
+
 /** Exact, era-honest label for display in the demo UI. */
 export const ERA_LABEL =
   ERA === "v8-preview"

@@ -126,7 +126,7 @@ async function renderAndConnect() {
     root.render(<Probe />);
   });
   await act(async () => {
-    hookRef?.connect();
+    hookRef?.connect("1am");
   });
 }
 

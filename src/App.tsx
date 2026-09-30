@@ -8,8 +8,7 @@ import { useMidnight } from "./hooks/useMidnight";
 import { hasStoredInviteSecret } from "./lib/inviteSecret";
 
 export default function App() {
-  const { wallet, connect, disconnect, submission, submitFeedback } = useMidnight();
-  // Only a boolean is tracked here; the secret itself stays inside the import
+  const { wallet, connect, disconnect, submission, submitFeedback } = useMidnight();  // Only a boolean is tracked here; the secret itself stays inside the import
   // component and the private-state store.
   const [hasInviteSecret, setHasInviteSecret] = useState(() => hasStoredInviteSecret());
 

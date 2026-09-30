@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 import {
-  connectOneAmWallet,
+  connectWallet,
+  listAvailableWallets,
   type ConnectedAPI,
   type WalletConnectionState,
+  type WalletKind,
 } from "../lib/wallet";
 import { digestComment, toHex } from "../lib/crypto";
 import {
@@ -64,15 +66,24 @@ export function useMidnight() {
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
   const [submission, setSubmission] = useState<SubmissionState>({ stage: "idle" });
 
-  const connect = useCallback(async () => {
+  /**
+   * Connects the wallet the user picked.
+   *
+   * Which wallet is connected changes nothing about eligibility or the
+   * transaction flow: the same invitation secret, the same compiled contract,
+   * the same provider bundle and the same submit path run either way. It
+   * changes only WHO pays the fee — the connected wallet balances and submits
+   * with its own DUST.
+   */
+  const connect = useCallback(async (kind: WalletKind) => {
     setWallet({ status: "connecting" });
-    const result = await connectOneAmWallet();
+    const result = await connectWallet(kind);
     setWallet(result);
     // Retain the live ConnectedAPI on success and clear it on every other
     // outcome. The submission flow needs this handle: `wallet` alone carries
     // only the address and network, and the connector cannot hand the API back
     // after connect() has resolved. Without this the form's submit guard sees a
-    // null `connectedApi` and refuses with "Connect 1AM Wallet before
+    // null `connectedApi` and refuses with "Connect a wallet before
     // submitting." even though the wallet card shows a live connection.
     setConnectedApi(result.status === "connected" ? result.api : null);
   }, []);
@@ -105,7 +116,7 @@ export function useMidnight() {
   const submitFeedback = useCallback(
     async (rating: number, comment: string) => {
       if (wallet.status !== "connected" || !connectedApi) {
-        setSubmission({ stage: "failed", error: "Connect 1AM Wallet before submitting." });
+        setSubmission({ stage: "failed", error: "Connect a wallet before submitting." });
         return;
       }
       if (rating < 1 || rating > 5) {
@@ -213,5 +224,6 @@ export function useMidnight() {
     connectedApi,
     setConnectedApi,
     hasInviteSecret: hasStoredInviteSecret,
+    availableWallets: listAvailableWallets(),
   };
 }

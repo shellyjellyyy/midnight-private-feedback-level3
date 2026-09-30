@@ -195,7 +195,27 @@ describe("retained v8 Preview indexer endpoint", () => {
     expect(indexerCalls[0].subscriptionURL).toBe(CANONICAL_WS);
   });
 
-  it("still refuses when the wallet supplies no proof server", async () => {
+  it("still uses the wallet's proof server when it supplies one", async () => {
+    const connector = oneAmConnector();
+    connector.getConfiguration = vi.fn().mockResolvedValue({
+      networkId: "preview",
+      indexerUri: WALLET_HTTP,
+      indexerWsUri: WALLET_WS,
+      proverServerUri: WALLET_PROVER,
+    }) as never;
+
+    await buildProvidersFromConnectedAPI(connector, { networkId: "preview" });
+
+    // The working 1AM path is untouched: a wallet-supplied proof server wins.
+    expect(proofCalls[0].url).toBe(WALLET_PROVER);
+  });
+
+  it("falls back to the canonical Preview proof server when the wallet omits one", async () => {
+    // A wallet that does not implement delegated proving (Lace is documented
+    // not to) may leave the optional, deprecated `proverServerUri` unset. The
+    // retained v8 arm proves through an HTTP proof server, so it falls back to
+    // the same canonical Preview server the Node provisioning flow already uses
+    // instead of refusing to build a provider set.
     const connector = oneAmConnector();
     connector.getConfiguration = vi.fn().mockResolvedValue({
       networkId: "preview",
@@ -204,9 +224,13 @@ describe("retained v8 Preview indexer endpoint", () => {
       proverServerUri: undefined,
     }) as never;
 
-    await expect(
-      buildProvidersFromConnectedAPI(connector, { networkId: "preview" }),
-    ).rejects.toThrow(/proof-server URL/);
+    const bundle = await buildProvidersFromConnectedAPI(connector, { networkId: "preview" });
+
+    expect(bundle.era).toBe("v8-preview");
+    expect(proofCalls[0].url).toBe("https://proof-server.preview.midnight.network/");
+    // The indexer is still pinned canonically, exactly as before.
+    expect(indexerCalls[0].queryURL).toBe(CANONICAL_HTTP);
+    expect(indexerCalls[0].subscriptionURL).toBe(CANONICAL_WS);
   });
 
   it("reports the mismatch in diagnostics without leaking the wallet's token", async () => {

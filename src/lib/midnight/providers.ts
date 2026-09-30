@@ -49,7 +49,7 @@ import { createWalletProvidersFromConnectedAPI } from "./walletAdapter.js";
 import type { FeedbackPrivateState } from "./witnesses.js";
 import type { FeedbackCircuitId } from "./contract.js";
 import type { FeedbackCircuitIdV8 } from "./contract-v8.js";
-import { ERA, EXPECTED_NETWORK_ID, PREVIEW_INDEXER_HTTP_URI, PREVIEW_INDEXER_WS_URI, ZK_HTTP_ROUTE } from "./era.js";
+import { ERA, EXPECTED_NETWORK_ID, PREVIEW_INDEXER_HTTP_URI, PREVIEW_INDEXER_WS_URI, PREVIEW_PROOF_SERVER_URI, ZK_HTTP_ROUTE } from "./era.js";
 import { reportProviderConfig } from "./diagnostics.js";
 
 /**
@@ -294,15 +294,14 @@ async function buildPreviewProviders(
       accountId: walletProvider.getCoinPublicKey(),
     });
 
-    if (!config.proverServerUri) {
-      throw new Error(
-        "The connected wallet did not supply a proof-server URL (proverServerUri). " +
-          "Set the proof server in 1AM Wallet and reconnect — the Preview-era contract is " +
-          "proved through the wallet's proof server, as in the official retained-era flow.",
-      );
-    }
+    // The wallet's own proof server is preferred and is what 1AM supplies.
+    // A wallet that omits the optional, deprecated `proverServerUri` (Lace is
+    // documented as not exposing delegated proving) falls back to the same
+    // canonical Preview proof server the Node provisioning flow already uses.
+    // See PREVIEW_PROOF_SERVER_URI in ./era.js.
+    const proofServerUri = config.proverServerUri || PREVIEW_PROOF_SERVER_URI;
     const proofProvider = httpClientProofProvider({
-      url: config.proverServerUri,
+      url: proofServerUri,
       zkConfigProvider,
     });
 

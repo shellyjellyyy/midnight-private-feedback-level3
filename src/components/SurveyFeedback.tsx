@@ -71,7 +71,7 @@ export function SurveyFeedback({ wallet, submission, onSubmit, hasInviteSecret =
       </div>
 
       {!isConnected && (
-        <StatusMessage kind="info">Connect 1AM Wallet above to submit feedback.</StatusMessage>
+        <StatusMessage kind="info">Connect a wallet above to submit feedback.</StatusMessage>
       )}
 
       {/* The survey is invitation-only. Without an organizer-provided secret

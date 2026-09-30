@@ -108,7 +108,7 @@ describe("feedback submission guard after connecting 1AM Wallet", () => {
     expect(initial.refused).toBe(true);
 
     await act(async () => {
-      hook().connect();
+      hook().connect("1am");
     });
 
     // THE REGRESSION: the wallet card shows "connected", so the guard must not
@@ -128,7 +128,7 @@ describe("feedback submission guard after connecting 1AM Wallet", () => {
 
     const { observed, hook } = renderHook();
     await act(async () => {
-      hook().connect();
+      hook().connect("1am");
     });
     expect(observed[observed.length - 1].refused).toBe(false);
 
