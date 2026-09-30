@@ -188,6 +188,41 @@ export default defineConfig({
     alias: {
       buffer: "buffer",
       process: "process/browser",
+      /**
+       * ONE physical compact-runtime for the retained ledger-8 era.
+       *
+       * The retained-era runtime reaches the bundle under TWO different module
+       * specifiers, and both resolve to the same version of the same package:
+       *
+       *   "compact-runtime-ledger8"                 -> node_modules/compact-runtime-ledger8
+       *   "@midnight-ntwrk/compact-runtime-ledger8" -> node_modules/@midnight-ntwrk/compact-runtime-ledger8
+       *
+       * The first is pulled in transitively, as a bare npm alias, by
+       * `@midnight-ntwrk/midnight-js-protocol` (see its `createLedger8Engine`,
+       * which does `import('compact-runtime-ledger8')`). The second is the
+       * scoped devDependency alias this project declares, and it is the name
+       * the generated v8 contract module imports
+       * (`managed/feedback-v8/contract/index.js`).
+       *
+       * Two directories means TWO module instances, so `ChargedState` and
+       * `StateValue` get two different class identities. TypeScript sees one
+       * type and stays quiet; at runtime every `instanceof` and every
+       * wasm-bindgen constructor downcast between the two copies FAILS, which
+       * surfaced as `expected instance of _ChargedState` thrown from the
+       * generated module's `ledger()` helper when the retained-era engine's
+       * decoded state reached it.
+       *
+       * `midnight-js-protocol` already guards this class of bug with
+       * `assertSharedLedger8Instance`, but only on the `onchain-runtime-v3`
+       * axis — it compares the runtime against its OWN copy and never against
+       * the copy the generated contract holds, so it passes here.
+       *
+       * Aliasing the bare specifier onto the scoped one collapses both onto a
+       * single instance. No package is upgraded, downgraded or reinstalled;
+       * both names already request the identical version
+       * (compact-runtime 0.16.0).
+       */
+      "compact-runtime-ledger8": "@midnight-ntwrk/compact-runtime-ledger8",
     },
   },
   // Some Midnight modules reference `global`; point it at the real global object
