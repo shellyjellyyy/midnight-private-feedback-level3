@@ -29,6 +29,7 @@ import {
   type EncPublicKey,
   type FinalizedTransaction,
 } from "@midnightntwrk/ledger-v9";
+import { reportSeamFailure } from "./devSeamDiagnostic.js";
 
 /** Only the connector methods the two seams actually reach for. */
 export type WalletSeamConnector = Pick<
@@ -56,6 +57,24 @@ export type WalletKeyReaders = {
 };
 
 /**
+ * Runs a seam call, and under a dev build reports a sanitized projection of any
+ * rejection before re-throwing it UNCHANGED.
+ *
+ * The error is re-thrown as-is so the SDK's own `Ledger8SeamFailedError` and
+ * the user-facing redaction behave exactly as they do in production. Nothing
+ * about the failure is altered, only observed — and only on a dev server, since
+ * the diagnostic body is behind `import.meta.env.DEV`.
+ */
+async function balanceReporting<T>(seam: "balanceTx", call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    reportSeamFailure(seam, error);
+    throw error;
+  }
+}
+
+/**
  * Builds the wallet + submission providers from a connected connector API.
  *
  * The current-era arm moves a live ledger-v9 object; the retained (v8) arm
@@ -74,7 +93,13 @@ export function createWalletProvidersFromConnectedAPI(
     getEncryptionPublicKey: keys.getEncryptionPublicKey,
     currentEra: async (tx: UnboundTransaction): Promise<FinalizedTransaction> => {
       const serialized = uint8ArrayToHex(tx.serialize());
-      const result = await connectedAPI.balanceUnsealedTransaction(serialized);
+      // DEV-ONLY: tree-shaken out of production builds (import.meta.env.DEV
+      // folds to false). The transaction itself is never passed to it.
+      const result = import.meta.env.DEV
+        ? await balanceReporting("balanceTx", () =>
+            connectedAPI.balanceUnsealedTransaction(serialized),
+          )
+        : await connectedAPI.balanceUnsealedTransaction(serialized);
       const resultBytes = hexToUint8Array(result.tx);
       return Transaction.deserialize(
         "signature",
@@ -85,9 +110,12 @@ export function createWalletProvidersFromConnectedAPI(
     },
     retainedEras: {
       v8: async (txBytes: Uint8Array): Promise<Uint8Array> => {
-        const result = await connectedAPI.balanceUnsealedTransaction(
-          uint8ArrayToHex(txBytes),
-        );
+        const serialized = uint8ArrayToHex(txBytes);
+        const result = import.meta.env.DEV
+          ? await balanceReporting("balanceTx", () =>
+              connectedAPI.balanceUnsealedTransaction(serialized),
+            )
+          : await connectedAPI.balanceUnsealedTransaction(serialized);
         return hexToUint8Array(result.tx);
       },
     },
@@ -123,7 +151,14 @@ export function createWalletProvidersFromConnectedAPI(
             "The transaction carries no identifier, so it cannot be tracked once submitted.",
           );
         }
-        await connectedAPI.submitTransaction(uint8ArrayToHex(txBytes));
+        try {
+          await connectedAPI.submitTransaction(uint8ArrayToHex(txBytes));
+        } catch (error) {
+          // DEV-ONLY observation; the rejection is re-thrown unchanged so the
+          // SDK's own handling and the user-facing text are unaffected.
+          if (import.meta.env.DEV) reportSeamFailure("submitTx", error);
+          throw error;
+        }
         return txId;
       },
     },
