@@ -1,8 +1,9 @@
 import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
+import { loadEnv } from "vite";
 import type { ServerResponse } from "node:http";
 
 /**
@@ -68,8 +69,111 @@ function midnightZkAssets(): Plugin {
   };
 }
 
+/**
+ * Publishes the PUBLIC ZK artifacts this build's era needs into `dist`, so a
+ * deployed static host serves them at exactly the URLs the browser requests.
+ *
+ * WHY THIS EXISTS
+ * `midnightZkAssets()` above only mounts `managed/` for `vite dev` /
+ * `vite preview`. A real deployment serves `dist/`, and `vite build` does not
+ * copy `managed/` into it, so every FetchZkConfigProvider request 404s after
+ * deploy — the app builds and then cannot read the contract at runtime.
+ *
+ * The URLs are not guessed. `src/lib/midnight/providers.ts` constructs
+ * FetchZkConfigProvider over `${window.location.origin}/contract/<artifactDir>`,
+ * and the provider resolves every artifact under that base as:
+ *
+ *   compiler/contract-info.json       (ZK_CONTRACT_INFO_FILE_NAME)
+ *   compiler/contract-manifest.json   (ZK_MANIFEST_DIR + ZK_MANIFEST_FILE_NAME)
+ *   keys/<circuit>.prover             (getProverKey)
+ *   keys/<circuit>.verifier           (getVerifierKey)
+ *   zkir/<circuit>.bzkir              (getZKIR)
+ *
+ * and `ZKConfigRegistry.buildConfig` awaits all three per-circuit artifacts on
+ * every proof. `contract/` itself is NOT copied: it is already bundled into
+ * the JS, and only the key/IR material is fetched over HTTP.
+ *
+ * The circuit list is read from the generated `contract-info.json` rather than
+ * hardcoded, so a contract change cannot silently desynchronise this step from
+ * the artifact it publishes.
+ *
+ * FAIL LOUDLY. A missing artifact aborts the build. A deployment that shipped
+ * without its verifier keys would look healthy and fail at proof time, in a
+ * browser, with a 404 — the failure mode this plugin exists to prevent.
+ *
+ * ONE ERA PER BUILD. `ZK_HTTP_ROUTE` is resolved at build time from
+ * VITE_MIDNIGHT_ERA, so a bundle only ever requests its own era's directory;
+ * copying the other era's ~11 MB into dist would be dead weight.
+ */
+function midnightZkDeployAssets(): Plugin {
+  // Captured from the resolved config rather than passed in, so this stays a
+  // plain-object Vite config and still sees the real mode: `vite build` is
+  // "production", `vite build --mode preview-era` is "preview-era".
+  let mode = "production";
+  return {
+    name: "midnight-zk-deploy-assets",
+    apply: "build",
+    configResolved(config) {
+      mode = config.mode;
+    },
+    writeBundle(options) {
+      // Mirror src/lib/midnight/era.ts exactly: the route the browser will ask
+      // for is decided by the same variable, so the copy cannot drift from it.
+      const env = loadEnv(mode, __dirname, "");
+      const era = env.VITE_MIDNIGHT_ERA === "v8-preview" ? "v8-preview" : "v9";
+      const artifactDir = era === "v8-preview" ? "managed/feedback-v8" : "managed/feedback";
+      const sourceRoot = resolve(__dirname, artifactDir);
+      const outDir = resolve(__dirname, options.dir ?? "dist");
+      // ZK_HTTP_ROUTE = `/contract/${MANAGED_ARTIFACT_DIR}`
+      const destRoot = resolve(outDir, "contract", artifactDir);
+
+      const infoPath = join(sourceRoot, "compiler/contract-info.json");
+      if (!existsSync(infoPath)) {
+        throw new Error(
+          `[midnight-zk-deploy-assets] ${infoPath} is missing. Run \`npm run compile:${
+            era === "v8-preview" ? "v8" : "v9"
+          }\` before building — this build targets the ${era} era.`,
+        );
+      }
+      const info = JSON.parse(readFileSync(infoPath, "utf8"));
+      const circuits: string[] = info.circuits.map((c: { name: string }) => c.name);
+
+      // contract-manifest.json is what makes v9's `verify: "require"` work.
+      // compactc 0.31.1 (the retained era) emits no manifest, and that era's
+      // provider deliberately uses "require-if-present" — so absence is
+      // correct there and only an absence in v9 is a build error.
+      const required = ["compiler/contract-info.json"];
+      if (era !== "v8-preview") required.push("compiler/contract-manifest.json");
+      for (const circuit of circuits) {
+        required.push(`keys/${circuit}.prover`, `keys/${circuit}.verifier`, `zkir/${circuit}.bzkir`);
+      }
+
+      const missing = required.filter((rel) => !existsSync(join(sourceRoot, rel)));
+      if (missing.length > 0) {
+        throw new Error(
+          `[midnight-zk-deploy-assets] refusing to build: ${missing.length} required ZK artifact(s) ` +
+            `missing from ${artifactDir}/\n  - ${missing.join("\n  - ")}\n` +
+            `Regenerate with \`npm run compile:${era === "v8-preview" ? "v8" : "v9"}\`.`,
+        );
+      }
+
+      let bytes = 0;
+      for (const rel of required) {
+        const dest = resolve(destRoot, rel);
+        mkdirSync(resolve(dest, ".."), { recursive: true });
+        copyFileSync(join(sourceRoot, rel), dest);
+        bytes += statSync(dest).size;
+      }
+      console.log(
+        `\n[zk-assets] published ${required.length} ${era} artifact(s), ` +
+          `${(bytes / 1024 / 1024).toFixed(2)} MB, to dist/contract/${artifactDir}/`,
+      );
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), wasm(), midnightZkAssets()],
+  plugins: [react(), wasm(), midnightZkAssets(), midnightZkDeployAssets()],
   build: {
     // The Midnight onchain runtime ships as WASM with top-level await; the
     // default esnext-free target cannot emit that.

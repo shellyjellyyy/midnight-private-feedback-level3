@@ -12,31 +12,32 @@ vite.config.d.ts.map
 dist/
 dist-ssr/
 
-# compiled contract artifacts (regenerate with `npm run compile`)
+# compiled contract artifacts
 #
-# NARROW EXCEPTION — each era's `contract/` module IS tracked, because the
-# frontend imports it at BUILD time:
-#   src/lib/midnight/contract.ts     -> managed/feedback/contract/index.js
-#   src/lib/midnight/contract-v8.ts  -> managed/feedback-v8/contract/index.js
-#   src/lib/midnight/types.ts, witnesses.ts (types only)
-# Every host that runs `npm run build` therefore needs those files present in a
-# fresh checkout. Vercel has no Compact toolchain and must not be asked to
-# author contracts, so the generated module is committed rather than
-# regenerated on the deploy host. It is public contract code plus its .d.ts —
-# about 230 KB for both eras — with no seed, key material or private state;
-# the witness SECRETS are supplied at runtime in the browser and never appear
-# in it.
+# The full PUBLIC Compact output of both eras is tracked, not just the module
+# the frontend imports:
 #
-# Everything else the compiler emits stays ignored. The per-circuit proving
-# material is large (the three .prover files alone are ~10.9 MB per era), is
-# never imported by the build, is fetched by the browser at runtime, and CI
-# recompiles it from source on every run.
-managed/feedback/compiler/
-managed/feedback/keys/
-managed/feedback/zkir/
-managed/feedback-v8/compiler/
-managed/feedback-v8/keys/
-managed/feedback-v8/zkir/
+#   managed/<era>/contract/index.js|.d.ts|.js.map  — bundled into the frontend
+#   managed/<era>/compiler/contract-info.json      — era/runtime declaration
+#   managed/<era>/compiler/contract-manifest.json  — artifact integrity (v9)
+#   managed/<era>/keys/*.verifier                  — circuit verifier keys
+#   managed/<era>/keys/*.prover                    — circuit proving keys
+#   managed/<era>/zkir/*.bzkir                     — circuit IR
+#
+# It is tracked because Vercel (and any other host) has no Compact toolchain
+# and must not be asked to author contracts, yet the BROWSER fetches all of the
+# above at runtime from this origin through FetchZkConfigProvider. Nothing in
+# `managed/` is secret: a prover key is public circuit proving material, and
+# the private data — the respondent's invite secret and the comment plaintext —
+# is a runtime witness supplied inside the browser and never appears here. The
+# real private state lives in `.admin-secret*`, `.participant-seed*` and the
+# `.env` files, all of which stay ignored.
+#
+# `managed/<era>/zkir/*.zkir` is deliberately NOT required by the browser
+# (FetchZkConfigProvider only requests `.bzkir`) but is tracked too, because
+# `npm run compile` emits it and it is a few KB.
+#
+# Regenerate with `npm run compile:v9` / `npm run compile:v8`.
 
 # environment
 .env

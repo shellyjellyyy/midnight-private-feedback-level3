@@ -1,0 +1,98 @@
+{
+  "manifest-version": "1",
+  "compiler-version": "0.34.0",
+  "language-version": "0.26.0",
+  "runtime-version": "0.19.0",
+  "compiler": {
+    "type": "directory",
+    "contract-info.json": {
+      "type": "file",
+      "size": 5024,
+      "hash": "743046dcf3462c6530ceceaee4bc092b0880ffd8fccc910a25532edd0e8eede6"
+    }
+  },
+  "contract": {
+    "type": "directory",
+    "index.d.ts": {
+      "type": "file",
+      "size": 4207,
+      "hash": "00ac09872e2e000adea7cd37051d366c2e212267a4cdab52030d98717508cb8c"
+    },
+    "index.js": {
+      "type": "file",
+      "size": 108101,
+      "hash": "3cc0c8ff080817b6c637b0b7012f1a59101d2d96e3a49a6a7dd0462ac5bd553d"
+    },
+    "index.js.map": {
+      "type": "file",
+      "size": 3690,
+      "hash": "5e876f432020c60effa99f46f2c5aae26aed01ba5546a5ea30e787cc7b3686fc"
+    }
+  },
+  "zkir": {
+    "type": "directory",
+    "registerParticipant.bzkir": {
+      "type": "file",
+      "size": 372,
+      "hash": "9990ae9f89573f02661a70f1d4e6ea4cd8572019d9e6d0e8c0fbb64ccb751d13"
+    },
+    "registerParticipant.zkir": {
+      "type": "file",
+      "size": 5719,
+      "hash": "a1cd9446dbb51914396bb46dd54e1ccb28bab924538a1f79faff86cec99e8729"
+    },
+    "setSurveyOpen.bzkir": {
+      "type": "file",
+      "size": 192,
+      "hash": "a3bae9983cc5373b35157f9be1693472b0347c5e6118cd39464bda7ab3914a68"
+    },
+    "setSurveyOpen.zkir": {
+      "type": "file",
+      "size": 2654,
+      "hash": "7dad542af2434f44fff724cf2559297f934ebaa30445f7ac21e0d9feae9e4af2"
+    },
+    "submitFeedback.bzkir": {
+      "type": "file",
+      "size": 1260,
+      "hash": "c081356509e697dd7e3b2e502d70b1306c3d96d0f6275d565828193270504ed5"
+    },
+    "submitFeedback.zkir": {
+      "type": "file",
+      "size": 16965,
+      "hash": "3b58df73975a69418f8be103fb90bb89f0f8b6c0845c695d5a6dd21b44c05176"
+    }
+  },
+  "keys": {
+    "type": "directory",
+    "registerParticipant.prover": {
+      "type": "file",
+      "size": 2823938,
+      "hash": "4d9847cd251aa792611b0e350018c1c2043f987746961654e4810dd5947f6a5b"
+    },
+    "registerParticipant.verifier": {
+      "type": "file",
+      "size": 2119,
+      "hash": "5896e9228077f83aee183c72b1707f4ba76f1cbfa2015ba7db1296a512078aff"
+    },
+    "setSurveyOpen.prover": {
+      "type": "file",
+      "size": 2820203,
+      "hash": "eae86b7ebb58a07ef519f6482ba57767da807a18ddb02c1054f7cb68bfe194ab"
+    },
+    "setSurveyOpen.verifier": {
+      "type": "file",
+      "size": 2119,
+      "hash": "6ce147c4c94e112f5097ef021e060e91509a8f9589bb460768e612366784b132"
+    },
+    "submitFeedback.prover": {
+      "type": "file",
+      "size": 5222986,
+      "hash": "64e76e832e908a0c3723f47e572ebb1bf6cdd24fe35f7ba4522165b397ecda7d"
+    },
+    "submitFeedback.verifier": {
+      "type": "file",
+      "size": 2119,
+      "hash": "38f55b0a9b0399dbb7e695b9b2b1f7b83067942c567a83047b7880a48ea978b3"
+    }
+  }
+}
