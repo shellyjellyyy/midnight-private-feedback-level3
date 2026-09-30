@@ -1,0 +1,228 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ============================================================================
+// Anonymous Feedback / Survey — privacy model
+//
+// PUBLIC (anyone reading the ledger can see this):
+//   - participants          : commitments to eligible respondents (a Merkle
+//                              tree of hashes, never the respondents' actual
+//                              identities or secrets)
+//   - participantCount      : how many people have been registered as
+//                              eligible respondents
+//   - usedNullifiers        : a set of spent, single-use nullifiers, one per
+//                              respondent per survey — proves someone has
+//                              already answered without saying who
+//   - responseCount         : verifiable count of unique respondents who
+//                              have actually submitted feedback
+//   - rating1..rating5      : the public tally, one running counter per
+//                              rating value on a 1–5 scale. Each submission
+//                              discloses its rating and increments exactly one
+//                              of these counters, so the submitted rating is
+//                              PUBLIC per-transaction — the tally design makes
+//                              it observable by construction. What stays
+//                              hidden is WHO submitted it.
+//   - commentCommitments    : optional public commitment (hash) to a
+//                              respondent's free-text comment, keyed by
+//                              their one-time nullifier
+//   - surveyOpen            : whether the survey currently accepts responses
+//   - adminAddress          : the public key allowed to register respondents
+//                              and open/close the survey
+//
+// PRIVATE (never leaves the respondent's browser/wallet, never on-chain):
+//   - the respondent's invite secret
+//   - the Merkle path proving that secret's commitment is registered
+//   - the plaintext of any free-text comment
+//
+// PROVEN WITHOUT DISCLOSURE:
+//   - "I hold a secret whose commitment was registered as an eligible
+//     respondent" — proven via a Merkle membership proof, without revealing
+//     which registered commitment is mine.
+//   - "I have not submitted feedback for this survey before" — proven via a
+//     deterministic, domain-separated nullifier that is unique per secret
+//     but reveals nothing about the secret it was derived from.
+//   - "My comment is exactly this text" — provable later, and only if the
+//     respondent chooses, by revealing the plaintext and letting anyone
+//     recompute the hash and compare it against commentCommitments. Nobody
+//     can do this involuntarily, because the plaintext was never disclosed
+//     on-chain in the first place.
+// ============================================================================
+
+export ledger participants: HistoricMerkleTree<10, Bytes<32>>;
+export ledger participantCount: Counter;
+
+// Compact has no native Set<T>; Map<Bytes<32>, Boolean> is the idiomatic
+// substitute — a present key means the nullifier has been spent.
+export ledger usedNullifiers: Map<Bytes<32>, Boolean>;
+export ledger responseCount: Counter;
+
+export ledger rating1: Counter;
+export ledger rating2: Counter;
+export ledger rating3: Counter;
+export ledger rating4: Counter;
+export ledger rating5: Counter;
+
+// Optional commit-reveal channel for free-text comments. Only a hash is
+// ever written here; the plaintext never touches the contract's public
+// surface at all.
+export ledger commentCommitments: Map<Bytes<32>, Bytes<32>>;
+
+export ledger surveyOpen: Boolean;
+export ledger adminAddress: Bytes<32>;
+
+// ----------------------------------------------------------------------
+// Witnesses — private, off-chain data. Every one of these runs locally in
+// the respondent's browser/wallet and is never transmitted as plaintext.
+// ----------------------------------------------------------------------
+
+// The respondent's private invite secret, generated for them when they were
+// registered and stored only on their own device.
+witness participantSecret(): Bytes<32>;
+
+// The Merkle path proving `participantSecret`'s commitment is one of the
+// leaves in the public `participants` tree, without saying which one.
+witness participantMerklePath(leaf: Bytes<32>): MerkleTreePath<10, Bytes<32>>;
+
+// The rating the respondent has chosen for this submission (1-5).
+witness feedbackRating(): Uint<8>;
+
+// The plaintext of an optional free-text comment. This value is used only
+// to compute a commitment; it is never disclosed or written to the ledger.
+witness feedbackComment(): Bytes<32>;
+
+// The admin's private secret, used to prove the caller knows the admin
+// material. It is never stored or disclosed; only a domain-separated
+// commitment of it (adminAddress) is pinned at construction, and admin
+// circuits verify the caller knows a preimage.
+witness adminSecret(): Bytes<32>;
+
+// ----------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------
+
+// Domain-separated hash so the same secret produces different, unlinkable
+// outputs depending on what it is being used for (commitment vs nullifier).
+circuit taggedHash(tag: Bytes<32>, value: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([tag, value]);
+}
+
+// Derives the admin's public identity commitment from their private secret
+// material. Knowledge of a preimage of adminAddress is what authorizes admin
+// circuits; no address is ever taken from an untrusted witness, so an
+// attacker cannot simply replay the public adminAddress value.
+circuit adminIdentity(secret: Bytes<32>): Bytes<32> {
+  return taggedHash(pad(32, "midnight:feedback:admin:identity"), secret);
+}
+
+// Domain-separated hash scoped to this contract instance. Using the
+// contract's own address as the scope means the same literal secret value
+// hashes differently on two separate survey deployments, so a reused secret
+// cannot be linked across surveys by matching nullifiers.
+circuit scopedTaggedHash(tag: Bytes<32>, scope: Bytes<32>, value: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([tag, scope, value]);
+}
+
+// ----------------------------------------------------------------------
+// Constructor
+// ----------------------------------------------------------------------
+
+constructor(admin: Bytes<32>) {
+  adminAddress = disclose(admin);
+  surveyOpen = true;
+}
+
+// ----------------------------------------------------------------------
+// Admin circuits
+// ----------------------------------------------------------------------
+
+// Registers a new eligible respondent by inserting the commitment to their
+// invite secret into the public Merkle tree. Only the commitment is ever
+// written on-chain — never the secret and never any identifying data about
+// who the respondent actually is. The mapping between a real-world identity
+// and a given leaf exists only in whatever off-chain process the survey
+// organizer used to hand out invite secrets (e.g. one secret per employee
+// badge, distributed privately) — it is intentionally outside this contract.
+export circuit registerParticipant(leaf: Bytes<32>): [] {
+  assert(disclose(adminIdentity(adminSecret())) == adminAddress, "only the admin can register participants");
+  participants.insert(disclose(leaf));
+  participantCount.increment(1);
+}
+
+export circuit setSurveyOpen(isOpen: Boolean): [] {
+  assert(disclose(adminIdentity(adminSecret())) == adminAddress, "only the admin can open or close the survey");
+  surveyOpen = disclose(isOpen);
+}
+
+// ----------------------------------------------------------------------
+// Core privacy action: submit anonymous feedback
+// ----------------------------------------------------------------------
+
+export circuit submitFeedback(): [] {
+  assert(surveyOpen, "the survey is not currently accepting responses");
+
+  const secret = participantSecret();
+  const rating = disclose(feedbackRating());
+  const comment = feedbackComment();
+
+  // Rebuild the commitment for this respondent's secret and prove it is a
+  // member of the registered-participants tree, without revealing which
+  // leaf it is.
+  const commitmentTag = pad(32, "midnight:feedback:commitment");
+  const leaf = taggedHash(commitmentTag, secret);
+  const path = participantMerklePath(leaf);
+  // Bind the supplied Merkle path to THIS secret's commitment. Without this,
+  // an attacker could present a valid path belonging to a different,
+  // registered respondent's commitment (whose root still matches the public
+  // tree) while spending a completely unrelated secret of their own — the
+  // proof must demonstrate membership of this exact leaf.
+  assert(path.leaf == leaf, "the Merkle path does not match this participant's commitment");
+  const computedRoot = merkleTreePathRoot<10, Bytes<32>>(path);
+  assert(
+    participants.checkRoot(disclose(computedRoot)),
+    "not a registered respondent for this survey"
+  );
+
+  // Derive a one-time, domain-separated nullifier scoped to THIS contract
+  // instance via the contract's own address. It is unique per secret, so the
+  // same respondent can never submit twice, but it is a one-way hash of the
+  // secret so it cannot be reversed to reveal who the respondent is. Because
+  // the contract address is part of the hash, a secret reused in a different
+  // survey deployment produces a different nullifier there — preventing
+  // cross-survey linkability.
+  const nullifierTag = pad(32, "midnight:feedback:nullifier");
+  const nullifier = scopedTaggedHash(nullifierTag, kernel.self().bytes, secret);
+  assert(!usedNullifiers.member(disclose(nullifier)), "this respondent has already submitted feedback");
+  usedNullifiers.insert(disclose(nullifier), true);
+  responseCount.increment(1);
+
+  // Bound-check the private rating before it is allowed to influence public
+  // state at all.
+  assert(rating >= 1 as Uint<8> && rating <= 5 as Uint<8>, "rating must be between 1 and 5");
+
+  // Only the corresponding tally counter is ever touched. An observer sees
+  // one public bucket increment by one — and because the rating itself was
+  // disclosed above, the submitted rating value is publicly inferable from
+  // this transaction. What remains hidden is WHICH respondent caused it.
+  if (rating == 1 as Uint<8>) {
+    rating1.increment(1);
+  } else if (rating == 2 as Uint<8>) {
+    rating2.increment(1);
+  } else if (rating == 3 as Uint<8>) {
+    rating3.increment(1);
+  } else if (rating == 4 as Uint<8>) {
+    rating4.increment(1);
+  } else {
+    rating5.increment(1);
+  }
+
+  // Store only a commitment to the optional free-text comment, keyed by the
+  // nullifier that was just spent. The plaintext comment is never written
+  // anywhere on-chain. A respondent may later choose, entirely off-chain,
+  // to reveal the plaintext to a third party, who can then hash it and
+  // compare it against this commitment to verify it is unaltered — but
+  // nobody can extract it involuntarily.
+  const commentTag = pad(32, "midnight:feedback:comment");
+  const commentCommitment = taggedHash(commentTag, comment);
+  commentCommitments.insert(disclose(nullifier), disclose(commentCommitment));
+}
