@@ -23,6 +23,7 @@
     "check:offline": "npm run lint && npm run check:resolutions && npm run check:dust-patch",
     "smoke:preview": "node scripts/smoke-preview.mjs",
     "deploy:preview": "node --max-old-space-size=8192 scripts/deploy-preview.mjs",
+    "provision:participant": "node --max-old-space-size=8192 scripts/provision-participant-preview.mjs",
     "verify:preview": "node scripts/verify-preview-deployment.mjs",
     "verify:onchain": "node scripts/verify-submitfeedback-onchain.mjs",
     "diag:submitfeedback": "node --max-old-space-size=8192 scripts/diag-submitfeedback.mjs"

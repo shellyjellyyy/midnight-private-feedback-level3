@@ -4,7 +4,11 @@ import {
   type ConnectedAPI,
   type WalletConnectionState,
 } from "../lib/wallet";
-import { digestComment, fromHex, generateSecret, toHex } from "../lib/crypto";
+import { digestComment, toHex } from "../lib/crypto";
+import {
+  readStoredInviteSecret,
+  hasStoredInviteSecret,
+} from "../lib/inviteSecret";
 import {
   buildProvidersFromConnectedAPI,
   FEEDBACK_PRIVATE_STATE_ID,
@@ -12,6 +16,15 @@ import {
 } from "../lib/midnight/providers.js";
 import { joinFeedbackContract, submitFeedbackTx, deployedContractAddress } from "../lib/midnight/feedback.js";
 import type { FeedbackPrivateState } from "../lib/midnight/witnesses.js";
+
+/**
+ * Shown when this browser holds no organizer-provided invitation at all. This
+ * is a distinct, recoverable state — the respondent can import one and retry —
+ * so it is deliberately different from the "you have one but it is not
+ * registered" message thrown by the `participantMerklePath` witness.
+ */
+export const NO_INVITE_SECRET_MESSAGE =
+  "An invitation secret from the survey organizer is required.";
 
 export type ProofStage =
   | "idle"
@@ -25,7 +38,6 @@ export interface SubmissionState {
   error?: string;
 }
 
-const SECRET_STORAGE_KEY = "midnight-feedback-invite-secret";
 /** One provider bundle per connected wallet; rebuilt on reconnect. */
 let providerBundle: ProviderBundle | null = null;
 
@@ -77,23 +89,17 @@ export function useMidnight() {
   }, []);
 
   /**
-   * Returns this browser's invite secret, generating and persisting a new
-   * one on first use. The secret never leaves this function except to be
-   * handed directly to the witness implementation — it is never logged,
-   * rendered, or included in any network request as plaintext.
+   * Returns this browser's organizer-provided invite secret, or null when none
+   * is stored.
+   *
+   * There is deliberately NO generation path here. The contract only accepts a
+   * secret whose commitment an organizer registered on-chain, so a secret
+   * minted in the browser is guaranteed to fail the Merkle-path check. The
+   * previous implementation generated one on first use, which made a
+   * legitimate first-run respondent fail with an error they could not act on.
    */
-  const getOrCreateSecret = useCallback((): Uint8Array => {
-    const existing = window.localStorage.getItem(SECRET_STORAGE_KEY);
-    if (existing) {
-      try {
-        return fromHex(existing);
-      } catch {
-        // fall through and mint a fresh one if storage was corrupted
-      }
-    }
-    const fresh = generateSecret();
-    window.localStorage.setItem(SECRET_STORAGE_KEY, toHex(fresh));
-    return fresh;
+  const getProvisionedSecret = useCallback((): Uint8Array | null => {
+    return readStoredInviteSecret();
   }, []);
 
   const submitFeedback = useCallback(
@@ -107,11 +113,28 @@ export function useMidnight() {
         return;
       }
 
+      // An organizer-provided invitation is a PRE-CONDITION, checked before any
+      // provider is built or any proof is attempted. Failing here yields the
+      // truthful "you have no invitation" message and costs the respondent
+      // nothing; reaching the witness with no secret would instead fail deep in
+      // proving with a much less actionable error.
+      if (!hasStoredInviteSecret()) {
+        setSubmission({ stage: "failed", error: NO_INVITE_SECRET_MESSAGE });
+        return;
+      }
+
       let session: Awaited<ReturnType<typeof joinFeedbackContract>> | null = null;
       try {
         setSubmission({ stage: "generating-proof" });
 
-        const secret = getOrCreateSecret();
+        const secret = getProvisionedSecret();
+        if (secret === null) {
+          // Unreachable given the guard above (storage could only change between
+          // the two synchronous calls, or be unreadable); handled rather than
+          // assumed so the witness never receives an undefined secret.
+          setSubmission({ stage: "failed", error: NO_INVITE_SECRET_MESSAGE });
+          return;
+        }
         const commentDigest = await digestComment(comment);
 
         const privateState: FeedbackPrivateState = {
@@ -178,7 +201,7 @@ export function useMidnight() {
         }
       }
     },
-    [wallet, connectedApi, getOrCreateSecret],
+    [wallet, connectedApi, getProvisionedSecret],
   );
 
   return {
@@ -189,5 +212,6 @@ export function useMidnight() {
     submitFeedback,
     connectedApi,
     setConnectedApi,
+    hasInviteSecret: hasStoredInviteSecret,
   };
 }

@@ -131,8 +131,48 @@ export function redactEndpoint(value: unknown): string | null {
 }
 
 /**
+ * Field names whose VALUES are secret material that must never be recorded.
+ *
+ * `redactEndpoint` only mangles strings that look like URLs, because a bare
+ * 64-hex value is indistinguishable from the public contract address. That is
+ * correct for endpoints but wrong for a FIELD NAMED like a secret: a field
+ * called `secret`, `inviteSecret` or `privateState` carries the respondent's
+ * invite secret by construction, and must be dropped by NAME rather than by
+ * shape.
+ *
+ * This is defense at the single `emit()` boundary, so a future caller cannot
+ * leak a secret into the console or the in-page panel by adding a field. The
+ * app itself never passes one — the secret reaches exactly one consumer, the
+ * `submitFeedback` witness — so this closes a leak that would only open through
+ * a future change.
+ */
+const SENSITIVE_FIELD_NAMES = [
+  "secret",
+  "invitesecret",
+  "invite_secret",
+  "privatestate",
+  "private_state",
+  "password",
+  "passphrase",
+  "seed",
+  "mnemonic",
+  "privatekey",
+  "private_key",
+  "signingkey",
+] as const;
+
+/** True when a diagnostic field name denotes secret material. */
+function isSensitiveFieldName(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[-\s]/g, "_");
+  return SENSITIVE_FIELD_NAMES.includes(
+    normalized.replace(/_/g, "") as (typeof SENSITIVE_FIELD_NAMES)[number],
+  ) || (SENSITIVE_FIELD_NAMES as readonly string[]).includes(normalized);
+}
+
+/**
  * Recursively replaces every endpoint-looking string in a diagnostic value with
- * its redacted form, at any depth.
+ * its redacted form, at any depth, and drops any field whose NAME denotes
+ * secret material.
  *
  * Applied to every recorded entry so a credential cannot reach the console or
  * the panel through a field this module did not enumerate.
@@ -144,6 +184,10 @@ export function redactDeep(value: unknown, depth = 0): unknown {
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (isSensitiveFieldName(key)) {
+        out[key] = "<withheld>";
+        continue;
+      }
       out[key] = redactDeep(inner, depth + 1);
     }
     return out;

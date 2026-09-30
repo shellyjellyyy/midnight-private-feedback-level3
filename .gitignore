@@ -78,3 +78,14 @@ deployment.json
 .admin-secret-preview
 .participant-seed-preview
 .admin-seed-preview
+
+# Organizer-provisioned RESPONDENT invitation secrets.
+#
+# scripts/provision-participant-preview.mjs writes the secret it registers to
+# this file so the organizer can paste the identical value into the browser's
+# import field. It is a LIVE credential for one survey response, exactly as
+# .admin-secret-preview is a live credential for administration — so it must
+# never be committed. .gitignore it explicitly; the `--secret-file` path may
+# also be any gitignored local path.
+.respondent-secret-preview
+.respondent-secret*

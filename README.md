@@ -312,6 +312,58 @@ constructor(admin: Bytes<32>)
 Asserts `adminIdentity(adminSecret()) == adminAddress`, inserts the disclosed
 commitment into the tree, increments `participantCount`.
 
+#### Provisioning a respondent (the browser half of this)
+
+The survey is **invitation-only**: `submitFeedback` re-derives
+`H("midnight:feedback:commitment", secret)` and requires a Merkle path for it,
+so a secret whose commitment was never registered can never submit. The browser
+therefore does **not** mint a secret — it imports one the organizer registered.
+
+The two halves:
+
+1. **Organizer registers** a respondent's secret (admin wallet, admin secret):
+
+   ```bash
+   # Generates a fresh 32-byte secret, registers its commitment, and writes the
+   # secret to the gitignored .respondent-secret-preview for you to paste.
+   npm run provision:participant
+
+   # Or register a secret you generated yourself (reproducible — the browser
+   # can then be given the identical value):
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > .my-respondent-secret
+   npm run provision:participant -- --secret-file .my-respondent-secret
+   ```
+
+   The script computes `taggedHash(pad(32, "midnight:feedback:commitment"), secret)`
+   — the identical derivation the contract performs — calls `registerParticipant`,
+   waits for the transaction to finalize as `SucceedEntirely`, and reports
+   `participantCount` before/after. It never redeploys the contract.
+
+   Add `--print-secret` to also print the secret to stdout. The secret is
+   written only to the gitignored file (or stdout on request) and is scrubbed
+   from every SDK log line.
+
+2. **Respondent imports** it in the browser: the "Invitation secret" card takes
+   the 64-character hex value, validates it as exactly 32 bytes, and stores it
+   in `localStorage` under `midnight-feedback-invite-secret`. It is never logged,
+   never sent to a server, never placed in a URL, and the input is cleared after
+   a successful import so it does not linger in the DOM.
+
+   With no invitation stored, the submit button is disabled and the app says
+   *"An invitation secret from the survey organizer is required."* With one
+   stored but not registered, the circuit's own Merkle-path check fails closed
+   and reports *"This invitation secret is not registered for this survey."*
+
+   **There is deliberately no "generate" affordance in the UI** — a self-minted
+   secret is guaranteed to fail registration. `tests/invite-secret-import.test.tsx`
+   asserts this.
+
+   `tests/participant-commitment.test.ts` proves the organizer and browser agree
+   by executing the compiled contract: it registers a helper-derived commitment,
+   submits with the same raw secret, and asserts the contract finds the path. It
+   also asserts ledger-8 and v9 `persistentHash` produce identical bytes, which
+   is what makes that evidence valid for the retained Preview deployment.
+
 ### `setSurveyOpen(isOpen) — admin only`
 
 Same authorisation assert; flips `surveyOpen`.

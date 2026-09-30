@@ -9,11 +9,13 @@ interface SurveyFeedbackProps {
   wallet: WalletConnectionState;
   submission: SubmissionState;
   onSubmit: (rating: number, comment: string) => void;
+  /** Whether an organizer-provided invitation is stored (boolean only). */
+  hasInviteSecret?: boolean;
 }
 
 const RATING_LABELS = ["Very dissatisfied", "Dissatisfied", "Neutral", "Satisfied", "Very satisfied"];
 
-export function SurveyFeedback({ wallet, submission, onSubmit }: SurveyFeedbackProps) {
+export function SurveyFeedback({ wallet, submission, onSubmit, hasInviteSecret = true }: SurveyFeedbackProps) {
   const [rating, setRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
 
@@ -72,6 +74,16 @@ export function SurveyFeedback({ wallet, submission, onSubmit }: SurveyFeedbackP
         <StatusMessage kind="info">Connect 1AM Wallet above to submit feedback.</StatusMessage>
       )}
 
+      {/* The survey is invitation-only. Without an organizer-provided secret
+          the circuit cannot produce a valid Merkle path, so submitting is
+          pointless — say so before the user spends effort, instead of after a
+          failed proof. */}
+      {!hasInviteSecret && (
+        <StatusMessage kind="info">
+          An invitation secret from the survey organizer is required before you can submit.
+        </StatusMessage>
+      )}
+
       {submission.stage === "generating-proof" && (
         <StatusMessage kind="pending">Generating your zero-knowledge proof locally...</StatusMessage>
       )}
@@ -93,7 +105,7 @@ export function SurveyFeedback({ wallet, submission, onSubmit }: SurveyFeedbackP
       <button
         type="button"
         className="button button-primary"
-        disabled={!isConnected || rating === null || isBusy || isDone}
+        disabled={!isConnected || rating === null || isBusy || isDone || !hasInviteSecret}
         onClick={() => rating !== null && onSubmit(rating, comment)}
       >
         {isBusy ? (

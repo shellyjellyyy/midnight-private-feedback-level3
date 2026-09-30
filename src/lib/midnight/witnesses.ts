@@ -41,8 +41,13 @@ export const witnesses = {
     // The commitment this secret derives is the leaf that must be proven.
     const path = context.ledger.participants.findPathForLeaf(leaf);
     if (path === undefined) {
+      // The secret EXISTS but its commitment is not in the tree. This is the
+      // honest, specific failure: an organizer registered someone else. The
+      // distinct "no secret at all" case is detected earlier, in useMidnight,
+      // before a proof is ever attempted — this branch means the respondent did
+      // import a secret and the organizer has not registered THAT one.
       throw new Error(
-        "This browser's invite secret is not registered for this survey. Contact the survey organizer.",
+        "This invitation secret is not registered for this survey. Contact the survey organizer.",
       );
     }
     return [context.privateState, path as MerklePath];

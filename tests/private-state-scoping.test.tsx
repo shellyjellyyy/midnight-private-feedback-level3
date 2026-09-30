@@ -132,6 +132,16 @@ async function renderAndConnect() {
 
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // The submission path requires an ORGANIZER-PROVIDED invitation secret and
+  // refuses to proceed without one (see src/lib/inviteSecret.ts). This test is
+  // about the provider-scoping ORDER, which is only reachable once that
+  // pre-condition is satisfied — so store a (fake, never-registered) secret
+  // here. The Merkle-path check happens much later, inside the circuit, and is
+  // not reached because joinFeedbackContract is mocked.
+  window.localStorage.setItem(
+    "midnight-feedback-invite-secret",
+    "00112233445566778899aabbccddeeff0102030405060708090a0b0c0d0e0f10",
+  );
   provider = makeProvider();
   joinCalls = 0;
   submitTxCalls = 0;
