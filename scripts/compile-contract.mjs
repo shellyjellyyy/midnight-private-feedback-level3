@@ -19,9 +19,19 @@
  * The retained build applies the OFFICIAL dual-build pattern from the Midnight
  * wallet dApp starter (scripts/compile-retained.mjs there): after compiling
  * with the old compiler, rewrite the generated import of
- * '@midnight-ntwrk/compact-runtime' to '@midnight-ntwrk/compact-runtime-ledger8'
- * (an npm alias pinned to compact-runtime 0.16.0, installed via devDependencies
- * as "@midnight-ntwrk/compact-runtime-ledger8": "npm:@midnight-ntwrk/compact-runtime@0.16.0").
+ * '@midnight-ntwrk/compact-runtime' to 'compact-runtime-ledger8' — the BARE
+ * specifier, exactly as the official starter does it. That bare name is the
+ * dependency declared in package.json (transitively, as
+ * "compact-runtime-ledger8": "npm:@midnight-ntwrk/compact-runtime@0.16.0",
+ * pulled in by midnight-js-protocol), so the retained runtime resolves to a
+ * real, distinct optimizer entry.
+ *
+ * Do NOT "improve" this to the scoped '@midnight-ntwrk/compact-runtime-ledger8'.
+ * That directory is an npm alias whose package.json still declares
+ * name: "@midnight-ntwrk/compact-runtime", so the scoped specifier collapses
+ * onto the SAME declared package name as the v9 runtime and Vite's dependency
+ * optimizer silently drops the retained entry as a name collision. That is why
+ * the retained module must keep the bare specifier.
  * This keeps runtime 0.16.0 and 0.19.0 from ever mixing: the v8 artifact can
  * only load the 0.16.0 runtime, the v9 artifact only the 0.19.0 one (each
  * generated module also hard-fails via checkRuntimeVersion on a wrong runtime).
@@ -61,7 +71,7 @@ const ERAS = {
     runtime: "0.16.0",
     language: "0.23.0",
     outDir: "managed/feedback-v8",
-    alias: "@midnight-ntwrk/compact-runtime-ledger8",
+    alias: "compact-runtime-ledger8",
     label: "retained (v8 / ledger-v8, live Preview)",
   },
 };

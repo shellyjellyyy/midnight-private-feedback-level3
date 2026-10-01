@@ -201,8 +201,17 @@ export default defineConfig({
    * scripts, which resolve the retained runtime through the testkit on
    * purpose for bit-exactness) and must stay exactly as it is for those.
    *
-   * `compact-runtime-ledger8` and `onchain-runtime-v3` are the two axes the
+* `compact-runtime-ledger8` and `onchain-runtime-v3` are the two axes the
    * retained-era stack crosses, so both are pinned.
+   *
+   * There is deliberately NO alias mapping `compact-runtime-ledger8` onto
+   * `@midnight-ntwrk/compact-runtime-ledger8`. That scoped directory is an npm
+   * alias whose package.json declares `name: "@midnight-ntwrk/compact-runtime"`,
+   * so aliasing the bare specifier onto it collapses the retained runtime and the
+   * v9 runtime onto ONE optimizer key. The generated retained artifact imports
+   * the bare `compact-runtime-ledger8` directly (scripts/compile-contract.mjs),
+   * matching the official starter, and `node_modules/compact-runtime-ledger8`
+   * already resolves it to runtime 0.16.0.
    */
   resolve: {
     dedupe: [
@@ -212,32 +221,6 @@ export default defineConfig({
     alias: {
       buffer: "buffer",
       process: "process/browser",
-      /**
-       * ONE physical compact-runtime for the retained ledger-8 era.
-       *
-       * The retained-era runtime reaches the bundle under TWO different module
-       * specifiers, and both resolve to the same version of the same package:
-       *
-       *   "compact-runtime-ledger8"                 -> node_modules/compact-runtime-ledger8
-       *   "@midnight-ntwrk/compact-runtime-ledger8" -> node_modules/@midnight-ntwrk/compact-runtime-ledger8
-       *
-       * The first is pulled in transitively, as a bare npm alias, by
-       * `@midnight-ntwrk/midnight-js-protocol` (see its `createLedger8Engine`,
-       * which does `import('compact-runtime-ledger8')`). The second is the
-       * scoped devDependency alias this project declares, and it is the name
-       * the generated v8 contract module imports.
-       *
-       * Two directories meant two module instances, so `ChargedState` and
-       * `StateValue` got two different class identities. TypeScript saw one
-       * type and stayed quiet; at runtime every `instanceof` and every
-       * wasm-bindgen constructor downcast between the two copies failed, which
-       * surfaced as `expected instance of _ChargedState` from the generated
-       * module's `ledger()` helper.
-       *
-       * Both names already request the identical version (compact-runtime
-       * 0.16.0), so collapsing them is not a version change.
-       */
-      "compact-runtime-ledger8": "@midnight-ntwrk/compact-runtime-ledger8",
     },
   },
   // Some Midnight modules reference `global`; point it at the real global object
@@ -246,27 +229,77 @@ export default defineConfig({
     global: "globalThis",
   },
   /**
-   * Do NOT pre-bundle the retained-era WASM packages.
+   * Do NOT pre-bundle `onchain-runtime-v3`.
    *
-   * These carry wasm-bindgen glue plus a .wasm side file. esbuild's dependency
-   * optimizer inlines such a package into an optimized chunk of its own, so a
-   * package reachable from two different importers is instantiated TWICE, and
-   * the two instances own separate `ChargedState`/`StateValue` classes. The
-   * object one copy builds is refused by the other's checks.
+   * esbuild's dependency optimizer inlines a package into an optimized chunk of
+   * its own, so a package reachable from two different importers is instantiated
+   * TWICE, and the two instances own separate `ChargedState`/`StateValue` classes.
+   * The object one copy builds is refused by the other's checks — which raised
+   * `Ledger8InstanceMismatchError` ("two physically distinct copies of
+   * onchain-runtime-v3") from midnight-js-protocol's own
+   * `assertSharedLedger8Instance`. Keeping it out of the optimizer leaves it a
+   * real ES module, resolved once by path, so there is exactly one instance.
    *
-   * That is what raised `Ledger8InstanceMismatchError` ("two physically
-   * distinct copies of onchain-runtime-v3") from midnight-js-protocol's own
-   * `assertSharedLedger8Instance`. Excluding them keeps them as real ES
-   * modules, resolved once by path, so there is exactly one instance.
+   * `ledger-v8` is excluded for the same reason.
    *
-   * The official Midnight starter reaches the same result by loading WASM
-   * through vite-plugin-wasm; excluding these from the optimizer is the
-   * zero-install equivalent for packages already shipped as .wasm + glue.
+   * `compact-runtime-ledger8` is deliberately NOT excluded, and must not be:
+   * it has to be pre-bundled so esbuild supplies the CommonJS interop for
+   * `object-inspect`, which its `dist/error.js` default-imports from ESM. That
+   * package is CommonJS (`object-inspect@1.13.4`: no `"type": "module"`, no
+   * `exports` map), so served raw it has no ESM default export and the browser
+   * throws `does not provide an export named 'default'` before the app renders.
+   *
+   * Excluding `onchain-runtime-v3` — not `compact-runtime-ledger8` — is what
+   * removes the duplicate instances, so the interop and the single-instance
+   * guarantee are compatible.
    */
   optimizeDeps: {
+    /**
+     * Force `compact-runtime-ledger8` into the optimized graph.
+     *
+     * Merely REMOVING it from `exclude` does not do this: `exclude` only says
+     * "you may pre-bundle it", it does not put it in the graph. The optimizer ran
+     * and emitted `@midnight-ntwrk/compact-runtime` — which transitively imports
+     * `compact-runtime-ledger8` — yet never emitted a `compact-runtime-ledger8`
+     * entry, so the package was served as a real ES module with its
+     * un-interop'd CommonJS dependency intact.
+     *
+     * That matters because `dist/error.js` in that package does
+     * `import inspect from "object-inspect"`, a default import of CommonJS
+     * (`object-inspect@1.13.4`: no `"type": "module"`, no `exports` map). Only
+     * esbuild's pre-bundling synthesises the ESM default export. Served raw, the
+     * browser throws `does not provide an export named 'default'` and the app
+     * never renders.
+     *
+     * Naming it in `include` is what makes the entry discovery actually happen.
+     *
+     * WHY THE v9 `@midnight-ntwrk/compact-runtime` MUST ALSO BE EXCLUDED
+     * The alias target is a directory named `…/compact-runtime-ledger8`, but
+     * its package.json declares `name: "@midnight-ntwrk/compact-runtime"` — it
+     * is an npm alias (`npm:@midnight-ntwrk/compact-runtime@0.16.0`), not a
+     * distinct package. Four directories in this tree declare that same name.
+     *
+     * Vite keys optimized deps by DECLARED PACKAGE NAME, not by requested
+     * specifier. Requesting `@midnight-ntwrk/compact-runtime-ledger8` therefore
+     * resolves to a package whose name is `@midnight-ntwrk/compact-runtime` — a
+     * key the v9 0.19.0 runtime already occupies. The retained entry is then
+     * dropped SILENTLY as a name collision, with no warning, in every optimizer
+     * state tried (excluded, un-excluded, explicitly included).
+     *
+     * Excluding the v9 runtime does NOT help: it stays reachable through
+     * `@midnight-ntwrk/compact-js`, so its key is never freed. Verified.
+     *
+     * The fix is upstream of this file. The retained artifact must import the
+     * BARE specifier `compact-runtime-ledger8` — the official starter's form,
+     * applied by scripts/compile-contract.mjs — so the retained runtime resolves
+     * to a distinct optimizer entry and esbuild performs the CJS interop for
+     * `object-inspect`. That specifier is the declared dependency name, not an
+     * alias of the v9 one, so there is nothing to collapse and no `resolve.alias`
+     * is needed for it. See the note on `resolve.alias` above.
+     */
+    include: ["compact-runtime-ledger8"],
     exclude: [
       "@midnight-ntwrk/onchain-runtime-v3",
-      "@midnight-ntwrk/compact-runtime-ledger8",
       "@midnight-ntwrk/ledger-v8",
       "@midnightntwrk/ledger-v8",
     ],

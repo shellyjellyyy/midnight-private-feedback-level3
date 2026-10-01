@@ -1,4 +1,4 @@
-import type * as __compactRuntime from '@midnight-ntwrk/compact-runtime-ledger8';
+import type * as __compactRuntime from 'compact-runtime-ledger8';
 
 export type Witnesses<PS> = {
   participantSecret(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];

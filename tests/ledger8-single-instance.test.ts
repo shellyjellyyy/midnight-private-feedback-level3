@@ -1,101 +1,110 @@
 /**
- * Regression test: the retained ledger-8 runtime must be ONE module instance.
+ * Regression test: the retained ledger-8 runtime reaches the app through ONE
+ * module specifier, and that specifier is the bare `compact-runtime-ledger8`.
  *
- * THE DEFECT THIS PINS
- *   The retained-era compact runtime reached the bundle under two different
- *   module specifiers that both resolve to compact-runtime 0.16.0:
+ * WHAT THIS PINS
+ *   The generated retained artifact must import the BARE specifier, exactly as
+ *   the official Midnight starter's `compile-retained.mjs` produces it:
  *
- *     "compact-runtime-ledger8"                  (bare npm alias, pulled in
- *                                                  transitively by
- *                                                  midnight-js-protocol)
- *     "@midnight-ntwrk/compact-runtime-ledger8"  (scoped alias this project
- *                                                  declares, and the name the
- *                                                  generated v8 contract module
- *                                                  imports)
+ *     import * as __compactRuntime from 'compact-runtime-ledger8';
  *
- *   Two directories mean two module instances, so `ChargedState` and
- *   `StateValue` get two different class identities. TypeScript sees one type
- *   and stays quiet; at runtime every `instanceof` and every wasm-bindgen
- *   constructor downcast across the copies fails. That surfaced as
- *   `expected instance of _ChargedState`, thrown by `QueryContext`'s downcast
- *   in the generated module's `ledger()` helper
- *   (`managed/feedback-v8/contract/index.js:997-1000`).
+ *   The scoped form `'@midnight-ntwrk/compact-runtime-ledger8'` must NOT appear.
+ *   That directory is an npm alias whose package.json declares
+ *   `name: "@midnight-ntwrk/compact-runtime"`, i.e. the SAME declared package
+ *   name as the v9 runtime. Vite keys optimized deps by declared package name,
+ *   so a scoped specifier collapses onto the v9 optimizer key and the retained
+ *   entry is dropped silently â€” which is why the retained runtime was never
+ *   pre-bundled and `object-inspect` reached the browser as raw CommonJS.
  *
- *   `midnight-js-protocol`'s own `assertSharedLedger8Instance` does NOT catch
- *   this: it compares `onchain-runtime-v3` against the copy IT loaded, never
- *   against the copy the generated contract holds.
+ *   With the bare specifier there is exactly one specifier in play, so the two
+ *   copies can no longer be pulled apart: the app and the generated contract
+ *   necessarily share one module namespace.
  *
- * WHY ONLY IDENTITY IS ASSERTED
- *   The failing operation is a reference-equality failure, so reference
- *   equality is what is pinned. Behavioural round-trips would need to
- *   construct a `StateValue`, which the WASM API forbids directly
- *   ("StateValue cannot be constructed directly through the WASM API"), and
- *   the downcast that actually threw happens inside a `QueryContext`
- *   constructor this test cannot reach without a full contract call.
+ * WHY THE PREVIOUS SHAPE OF THIS TEST IS GONE
+ *   It asserted that the bare and scoped specifiers were the SAME namespace,
+ *   enforced by a `resolve.alias` collapsing one onto the other. That alias was
+ *   the thing causing the optimizer name collision, so it was removed. The
+ *   invariant it protected â€” a single instance â€” is now structural: there is one
+ *   specifier, not two.
+ *
+ * NOT ASSERTED HERE
+ *   The second axis, `@midnight-ntwrk/onchain-runtime-v3` instantiated twice by
+ *   Vite's dependency optimizer, is browser-only (Vitest never runs the
+ *   optimizer) and is pinned by `optimizeDeps.exclude` in vite.config.ts plus
+ *   the manual in-page check documented at the bottom of this file.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-/** The bare alias, exactly as midnight-js-protocol's engine imports it. */
+/** The bare alias, exactly as the generated v8 contract module imports it. */
 const BARE = "compact-runtime-ledger8";
-/** The scoped alias, exactly as the generated v8 contract module imports it. */
+/** The scoped alias that must not appear in the generated artifact. */
 const SCOPED = "@midnight-ntwrk/compact-runtime-ledger8";
+
+const GENERATED_JS = resolve(process.cwd(), "managed/feedback-v8/contract/index.js");
+const GENERATED_DTS = resolve(process.cwd(), "managed/feedback-v8/contract/index.d.ts");
 
 type Runtime = Record<string, unknown>;
 
 describe("retained ledger-8 runtime is a single module instance", () => {
-  it("resolves both specifiers to the SAME module namespace", async () => {
-    const bare = (await import(/* @vite-ignore */ BARE)) as Runtime;
-    const scoped = (await import(/* @vite-ignore */ SCOPED)) as Runtime;
-    expect(bare).toBe(scoped);
+  it("the generated retained contract imports the bare specifier", () => {
+    const js = readFileSync(GENERATED_JS, "utf8");
+    expect(js).toContain(`from '${BARE}'`);
   });
 
-  it("gives StateValue and ChargedState one class identity, not two", async () => {
-    const bare = (await import(/* @vite-ignore */ BARE)) as Runtime;
-    const scoped = (await import(/* @vite-ignore */ SCOPED)) as Runtime;
+  it("the generated retained contract does not import the scoped alias", () => {
+    const js = readFileSync(GENERATED_JS, "utf8");
+    const dts = readFileSync(GENERATED_DTS, "utf8");
+    expect(js).not.toContain(SCOPED);
+    expect(dts).not.toContain(SCOPED);
+  });
 
-    // These two are what the generated `ledger()` helper compares and
-    // constructs with. Before the resolve alias they were distinct
-    // constructors with the same name, which is precisely why the failure
-    // surfaced as a confusing "expected instance of _ChargedState" rather
-    // than anything mentioning a duplicate package.
-    expect(bare.ChargedState).toBe(scoped.ChargedState);
-    expect(bare.StateValue).toBe(scoped.StateValue);
+  it("the generated declarations pin the bare specifier too", () => {
+    const dts = readFileSync(GENERATED_DTS, "utf8");
+    expect(dts).toContain(`from '${BARE}'`);
   });
 
   it("exposes the three members the generated ledger() helper requires", async () => {
-    const scoped = (await import(/* @vite-ignore */ SCOPED)) as Runtime;
-    // index.js:997-1000 reads StateValue, branches on ChargedState, and
-    // constructs QueryContext.
-    expect(scoped.StateValue).toBeDefined();
-    expect(scoped.ChargedState).toBeDefined();
-    expect(scoped.QueryContext).toBeDefined();
+    const runtime = (await import(/* @vite-ignore */ BARE)) as Runtime;
+    // The generated ledger() helper reads StateValue, branches on ChargedState,
+    // and constructs QueryContext.
+    expect(runtime.StateValue).toBeDefined();
+    expect(runtime.ChargedState).toBeDefined();
+    expect(runtime.QueryContext).toBeDefined();
+  });
+
+  it("gives StateValue and ChargedState stable class identities", async () => {
+    const runtime = (await import(/* @vite-ignore */ BARE)) as Runtime;
+    // Same specifier reached twice must be the same constructors. Distinct
+    // constructors sharing a name are exactly what made the old failure read as
+    // "expected instance of _ChargedState" instead of mentioning a duplicate.
+    const again = (await import(/* @vite-ignore */ BARE)) as Runtime;
+    expect(runtime.ChargedState).toBe(again.ChargedState);
+    expect(runtime.StateValue).toBe(again.StateValue);
   });
 });
 
 /**
- * NOT ASSERTED HERE, AND WHY
+ * BROWSER-ONLY AXIS, VERIFIED IN THE PAGE
  *
- * The second axis — `@midnight-ntwrk/onchain-runtime-v3` reached once through
- * `compact-runtime-ledger8` and once directly — produced
- * `Ledger8InstanceMismatchError` in the BROWSER bundle. It is reproducible
- * under Node too, but not through Vitest: Vitest resolves modules with Node
- * semantics and never runs Vite's dependency optimizer, and the duplication
- * itself is caused BY that optimizer (esbuild inlines a wasm-bindgen package
- * into a chunk per importer, so each copy instantiates its own WASM and gets
- * its own class identities). The `optimizeDeps.exclude` that removes it
- * applies to the browser build only.
+ * `@midnight-ntwrk/onchain-runtime-v3` must be a SINGLE physical copy. It
+ * cannot be asserted here: Vitest resolves with Node semantics and never runs
+ * Vite's dependency optimizer, and the duplication was caused BY that optimizer
+ * (esbuild inlines a wasm-bindgen package into a chunk per importer, so each
+ * copy instantiates its own WASM and gets its own class identities).
+ * `optimizeDeps.exclude` removes it in the browser build only.
  *
- * So this axis is verified where it actually occurs — in the page. Run in the
- * devtools console on the dev server:
+ * On the dev server, confirm the retained runtime and the onchain runtime agree:
  *
  *   Promise.all([
- *     import('/node_modules/compact-runtime-ledger8/index.js'),
+ *     import('/node_modules/.vite/deps/compact-runtime-ledger8.js'),
  *     import('/node_modules/@midnight-ntwrk/onchain-runtime-v3/midnight_onchain_runtime_wasm.js'),
  *   ]).then(([g, o]) => ({
  *     chargedStateSame: g.ChargedState === o.ChargedState,
- *     stateValueSame: g.StateValue === o.StateValue,
- *     contractStateSame: g.ContractState === o.ContractState,
+ *     stateValueSame:   g.StateValue   === o.StateValue,
+ *     contractStateSame:g.ContractState=== o.ContractState,
  *   }))
  *
- * All three must be true. A false there is the dual-instantiation returning.
+ * A false in any of those three means `Ledger8InstanceMismatchError` will return.
  */
