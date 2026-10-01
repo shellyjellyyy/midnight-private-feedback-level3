@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import type { WalletConnectionState } from "../lib/wallet";
 import type { SubmissionState } from "../hooks/useMidnight";
 import { ERA_LABEL } from "../lib/midnight/era.js";
+import { getLastSeamFailure, onSeamFailure, type SeamDiagnostic } from "../lib/midnight/devSeamDiagnostic.js";
 import { StatusMessage } from "./StatusMessage";
 
 interface SurveyFeedbackProps {
@@ -18,6 +19,24 @@ const RATING_LABELS = ["Very dissatisfied", "Dissatisfied", "Neutral", "Satisfie
 export function SurveyFeedback({ wallet, submission, onSubmit, hasInviteSecret = true }: SurveyFeedbackProps) {
   const [rating, setRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
+
+  /**
+   * DEV-ONLY developer diagnostic.
+   *
+   * Renders the SAME sanitized object `reportSeamFailure` already sends to
+   * `console.error` — no extra field, no extra cause depth, no raw provider
+   * error. `getLastSeamFailure()` returns null unless `import.meta.env.DEV` is
+   * true, so this block never renders in a production build, and the whole
+   * block below is dead code there.
+   */
+  const [seamDiag, setSeamDiag] = useState<SeamDiagnostic | null>(
+    import.meta.env.DEV ? getLastSeamFailure() : null,
+  );
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    setSeamDiag(getLastSeamFailure());
+    return onSeamFailure(setSeamDiag);
+  }, []);
 
   const isConnected = wallet.status === "connected";
   const isBusy = submission.stage === "generating-proof" || submission.stage === "submitting";
@@ -100,6 +119,23 @@ export function SurveyFeedback({ wallet, submission, onSubmit, hasInviteSecret =
       )}
       {submission.stage === "failed" && (
         <StatusMessage kind="error">{submission.error ?? "Something went wrong."}</StatusMessage>
+      )}
+
+      {/* DEV-ONLY developer diagnostic. Absent from production builds. */}
+      {import.meta.env.DEV && seamDiag && (
+        <details style={{ marginTop: "1rem" }}>
+          <summary>Developer diagnostic (development only)</summary>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontSize: "0.8rem",
+              marginTop: "0.5rem",
+            }}
+          >
+            {JSON.stringify(seamDiag, null, 2)}
+          </pre>
+        </details>
       )}
 
       <button

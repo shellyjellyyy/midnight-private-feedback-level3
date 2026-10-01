@@ -117,6 +117,46 @@ export function sanitizeSeamFailure(error: unknown): {
 }
 
 /**
+ * The exact shape published to subscribers. It is the SAME object that goes to
+ * `console.error` — the projection is computed once and handed to both, so the
+ * page can never show anything the console would not also show, and vice versa.
+ */
+export type SeamDiagnostic = {
+  seam: SeamName;
+  error: FailureLevel;
+  cause: FailureLevel;
+};
+
+/**
+ * Dev-only fan-out so the on-page developer diagnostic can render the SAME
+ * sanitized object as the console, for environments where the console is not
+ * reachable.
+ *
+ * This adds no new capability: no extra field is read, no cause depth is added,
+ * and no sanitization rule changes. It republishes `reportSeamFailure`'s existing
+ * output. The list is module-private and only ever populated under
+ * `import.meta.env.DEV`.
+ */
+const subscribers: ((d: SeamDiagnostic) => void)[] = [];
+
+/** Subscribes to sanitized seam failures. Returns an unsubscribe function. */
+export function onSeamFailure(fn: (d: SeamDiagnostic) => void): () => void {
+  subscribers.push(fn);
+  return () => {
+    const i = subscribers.indexOf(fn);
+    if (i >= 0) subscribers.splice(i, 1);
+  };
+}
+
+/** The most recent sanitized seam failure, or null if none has occurred. */
+let latest: SeamDiagnostic | null = null;
+
+/** Reads the last sanitized seam failure. Null outside a dev server. */
+export function getLastSeamFailure(): SeamDiagnostic | null {
+  return import.meta.env.DEV ? latest : null;
+}
+
+/**
  * Prints the sanitized projection at a seam, ONCE, and only under a dev server.
  *
  * A production build folds `import.meta.env.DEV` to `false`, so this returns
@@ -137,4 +177,9 @@ export function reportSeamFailure(seam: SeamName, error: unknown): void {
     error: level0,
     cause,
   });
+  // Republish the identical projection to dev-only subscribers. Same object,
+  // same fields, same redaction — this only adds a second destination.
+  const diagnostic: SeamDiagnostic = { seam, error: level0, cause };
+  latest = diagnostic;
+  for (const fn of [...subscribers]) fn(diagnostic);
 }
