@@ -152,9 +152,7 @@ Verified current result — **221 tests passing across 16 test files**.
 The suite is fully offline and deterministic: it requires no wallet, no seed, no
 funded account, no proof server and no RPC endpoint.
 
-![221 automated tests passing across 16 test files](docs/screenshots/tests-221-passed.png)
-
-*221 automated tests passing across 16 test files.*
+Screenshots of both results are in [Submission Evidence](#submission-evidence).
 
 ## CI/CD
 
@@ -166,10 +164,6 @@ runtime patches, type-checks, builds, and runs the full test suite. It is
 deterministic and offline with respect to Midnight, and it **never broadcasts a
 transaction or deploys a contract**. On-chain verification is deliberately not a CI
 gate, since it queries live Preview.
-
-![GitHub Actions CI workflow passing on main](docs/screenshots/ci-github-actions.png)
-
-*GitHub Actions CI workflow passing on main.*
 
 ## Submission Evidence
 
@@ -187,16 +181,20 @@ gate, since it queries live Preview.
 
 ### Live dApp
 
-<!-- TODO: Add docs/screenshots/dapp-success.png after capturing the successful live dApp submission -->
+The live dApp is at **https://midnight-private-feedback-level3-khaki.vercel.app/**.
+The end-to-end flow — wallet connection, proof generation, and a successful
+feedback submission — is demonstrated in the [demo video](#demo-video).
+
+A success-state screenshot is intentionally not included: each registered
+respondent secret is single-use by contract design (see
+[Privacy Model](#privacy-model)), so the submission shown in the video cannot be
+repeated with the same invitation.
 
 ## Demo Video
 
-<!-- TODO: Replace this placeholder with the final 1-minute demo video URL -->
+[Watch the 1-minute demo on Loom](https://www.loom.com/share/10610e5a32db49858e14ffeae876e695)
 
-[VIDEO DEMO — TO BE ADDED]
-
-The video should show wallet connection, the full feedback flow, circuit/proof
-execution, the successful result, and the privacy behaviour.
+<https://www.loom.com/share/10610e5a32db49858e14ffeae876e695>
 
 ## Product Proposal
 
